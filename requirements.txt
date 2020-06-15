@@ -1,0 +1,5 @@
+pyros-client
+pyros-telemetry
+pygame
+paho-mqtt
+local-resources
