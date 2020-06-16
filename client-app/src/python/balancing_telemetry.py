@@ -16,18 +16,19 @@ import pyros
 import threading
 import traceback
 
-# from functools import partial
+from functools import partial
 
 from pygame import Rect
 
 from pyros_support_ui import PyrosClientApp
-from pyros_support_ui.components import UIAdapter, Collection, LeftRightLayout, UiHint
+from pyros_support_ui.components import UIAdapter, Component, Collection, LeftRightLayout, UiHint, TopDownLayout
 from pyros_support_ui.pygamehelper import load_font, load_image
 
 from pyros_support_ui.box_blue_sf_theme import BoxBlueSFThemeFactory
 # from pyros_support_ui.flat_theme import FlatThemeFactory
 
 from graph_component import Graph, TelemetryGraphData
+from number_input import NumberInputComponent
 
 from telemetry import CachingSocketTelemetryClient
 
@@ -86,6 +87,101 @@ class GraphsPanel(Collection):
             y = y + height + margin
 
 
+class ValuesPanel(Collection):
+    def __init__(self, rect, _ui_factory):
+        super(ValuesPanel, self).__init__(rect, TopDownLayout(margin=5))
+        self.cached_values = {
+            'pid_inner': {'p': 0.75, 'i': 0.2, 'd': 0.05, 'g': 1.0},
+            'pid_outer': {'p': 0.75, 'i': 0.2, 'd': 0.05, 'g': 1.0},
+            'gyro': {'filter': 0.3, 'freq': 200, 'bandwidth': 50},
+            'accel': {'filter': 0.5, 'freq': 200},
+            'combine_factor_gyro': 0.95
+        }
+
+        pyros.subscribe("storage/write/balance/gyro/filter", self.gyro_filter_changed)
+        pyros.subscribe("storage/write/balance/accel/filter", self.accel_filter_changed)
+        pyros.subscribe("storage/write/balance/combine_factor_gyro", self.combine_factor_gyro_changed)
+        pyros.subscribe("storage/write/balance/pid_inner/#", self.pid_inner_changed)
+        pyros.subscribe("storage/write/balance/pid_outer/#", self.pid_inner_changed)
+
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("gyro/filter"), 'g-f', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("accel/filter"), 'a-f', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("combine_factor_gyro"), 'c-f', button_font=_ui_factory.get_small_font()))
+        self.add_component(Component(Rect(0, 0, 300, 10)))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("pid_inner/p"), 'pi-p', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("pid_inner/i"), 'pi-i', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("pid_inner/d"), 'pi-d', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("pid_inner/g"), 'pi-g', button_font=_ui_factory.get_small_font()))
+
+        pyros_client_app.add_on_connected_subscriber(self.read_values)
+
+    def read_values(self):
+        def send_read_recursively(_map, path):
+            for key in _map:
+                if type(_map[key]) is dict:
+                    send_read_recursively(_map[key], (path + "/" + key) if path != "" else key)
+                else:
+                    pyros.publish(f"storage/read/balance/{path}/{key}", "")
+
+        send_read_recursively(self.cached_values, "")
+
+    def redefine_rect(self, rect):
+        super(ValuesPanel, self).redefine_rect(rect)
+
+    def gyro_filter_changed(self, _topic, payload, _groups):
+        self.cached_values['gyro']['filter'] = float(payload)
+
+    def accel_filter_changed(self, _topic, payload, _groups):
+        self.cached_values['accel']['filter'] = float(payload)
+
+    def combine_factor_gyro_changed(self, _topic, payload, _groups):
+        self.cached_values['combine_factor_gyro'] = float(payload)
+
+    def pid_inner_changed(self, topic, payload, _groups):
+        topic = topic[32:]
+        # noinspection PyBroadException
+        try:
+            if "p" == topic:
+                self.cached_values['pid_inner']['p'] = float(payload)
+            if "i" == topic:
+                self.cached_values['pid_inner']['i'] = float(payload)
+            if "d" == topic:
+                self.cached_values['pid_inner']['d'] = float(payload)
+            if "g" == topic:
+                self.cached_values['pid_inner']['g'] = float(payload)
+        except Exception:
+            pass
+
+    def pid_outer_changed(self, topic, payload, _groups):
+        topic = topic[32:]
+        # noinspection PyBroadException
+        try:
+            if "p" == topic:
+                self.cached_values['pid_inner']['p'] = float(payload)
+            if "i" == topic:
+                self.cached_values['pid_inner']['i'] = float(payload)
+            if "d" == topic:
+                self.cached_values['pid_inner']['d'] = float(payload)
+            if "g" == topic:
+                self.cached_values['pid_inner']['g'] = float(payload)
+        except Exception:
+            pass
+
+    def create_getter_and_setter(self, path):
+        def read_value(map_place, name):
+            return map_place[name]
+
+        def write_value(map_place, name, _path, value):
+            map_place[name] = value
+            pyros.publish("storage/write/balance/" + _path, str(value))
+
+        splt = path.split('/')
+        m = self.cached_values
+        for p in splt[:-1]:
+            m = m[p]
+        return partial(read_value, m, splt[-1]), partial(write_value, m, splt[-1], path)
+
+
 class BalancingRoverTelemetry(Collection):
     def __init__(self, _ui_factory, _pyros_client_app):
         super(BalancingRoverTelemetry, self).__init__(None)
@@ -94,6 +190,8 @@ class BalancingRoverTelemetry(Collection):
         self.add_component(self.commands)
         self.graphs_panel = GraphsPanel(3, 4)
         self.add_component(self.graphs_panel)
+        self.values_panel = ValuesPanel(Rect(0, 0, 300, 800), _ui_factory)
+        self.add_component(self.values_panel)
 
         self.commands.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Start", on_click=self.start_balancing))
         self.commands.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Stop", on_click=self.stop_balancing, hint=UiHint.WARNING))
@@ -124,7 +222,9 @@ class BalancingRoverTelemetry(Collection):
     def redefine_rect(self, rect):
         self.rect = rect
         self.commands.redefine_rect(Rect(rect.x, rect.y, rect.width, 30))
-        self.graphs_panel.redefine_rect(Rect(rect.x, self.commands.rect.bottom + 5, rect.width, rect.bottom - self.commands.rect.bottom - 5))
+        self.graphs_panel.redefine_rect(Rect(rect.x, self.commands.rect.bottom + 5, rect.width - 300 - 5, rect.bottom - self.commands.rect.bottom - 5))
+        self.values_panel.redefine_rect(
+            Rect(self.graphs_panel.rect.right + 5, self.commands.rect.bottom + 5, rect.right - self.graphs_panel.rect.right - 5, rect.bottom - self.commands.rect.bottom - 5))
 
     def _setup_telemetry_client(self, host, port):
         self.telemetry_client = CachingSocketTelemetryClient(host=host, port=port)

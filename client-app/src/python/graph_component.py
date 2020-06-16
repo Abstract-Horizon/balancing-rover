@@ -9,7 +9,6 @@
 #    Daniel Sendula - initial API and implementation
 #
 #################################################################################
-from datetime import date
 
 import pygame
 import time

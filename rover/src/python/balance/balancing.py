@@ -16,17 +16,31 @@ import threading
 import time
 import math
 
+from storage import storagelib
+
 from balance.accel import ADXL345
 from balance.gyro import L3G4200D
+from balance.pid import PID
 
 
 class Balance:
-    def __init__(self):
+    _DEFAULT_PID = {'p': 0.75, 'i': 0.2, 'd': 0.05, 'g': 1.0}
+
+    def __init__(self,
+                 gyro_freq=200,
+                 gyro_bandwidth=50,
+                 gyro_filter=0.3,
+                 accel_freq=200,
+                 accel_filter=0.5,
+                 combine_factor_gyro=0.95,
+                 pid_inner: PID = None,
+                 pid_outer: PID = None):
+
         self._debug = False
 
-        self.gyro = L3G4200D(freq=200)
-        self.accel = ADXL345()
-        self.combine_factor_gyro = 0.95
+        self.gyro = L3G4200D(freq=gyro_freq, bandwidth=gyro_bandwidth, combine_filter=gyro_filter)
+        self.accel = ADXL345(freq=accel_freq, combine_filter=accel_filter)
+        self.combine_factor_gyro = combine_factor_gyro
         self.cx = 0.0
         self.cy = 0.0
         self.cz = 0.0
@@ -37,6 +51,15 @@ class Balance:
         self._logger = None
         self.telemetry_server = None
         self._is_running = False
+        self.pid_inner: PID = pid_inner if pid_inner is not None else PID().update_gains_from_map(self._DEFAULT_PID)
+        self.pid_outer: PID = pid_outer if pid_outer is not None else PID().update_gains_from_map(self._DEFAULT_PID)
+
+        print("Starting balance with following config values:")
+        print(f"  Gyro  freq={gyro_freq}, bandwidth={gyro_bandwidth} and filter={gyro_filter}")
+        print(f"  Accel freq={accel_freq} and filter={accel_filter}")
+        print(f"  Combine factor of  {combine_factor_gyro}")
+        print(f"  PID inner {pid_inner}")
+        print(f"  PID outer {pid_outer}")
 
     def run_loop(self):
         print("    started loop thread.")

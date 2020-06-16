@@ -78,7 +78,7 @@ class ADXL345:
         25: BW_RATE_25HZ
     }
 
-    def __init__(self, address=0x53, freq=200):
+    def __init__(self, address=0x53, freq=200, combine_filter=0.5):
         if freq not in self.ALLOWED_FREQUENCIES:
             raise ValueError(f"Frequency can be only one of: {[f for f in self.ALLOWED_FREQUENCIES]}")
 
@@ -91,7 +91,7 @@ class ADXL345:
         self.y_offset = 0
         self.z_offset = 0
 
-        self.filter = 0.5
+        self.filter = combine_filter
 
         self.inverse_freq = 1.0 / freq
         self.next_time = 0

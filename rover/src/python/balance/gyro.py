@@ -78,7 +78,7 @@ class L3G4200D:
         800: {'_': 0xC0, 30: 0, 35: 0x10, 50: 0x20, 110: 0x30}
     }
 
-    def __init__(self, address=0x69, freq=400, bandwidth=50):
+    def __init__(self, address=0x69, freq=400, bandwidth=50, combine_filter=0.3):
         if freq not in self.ALLOWED_FREQ_BANDWIDTH_COMBINATIONS:
             raise ValueError("Fequency can be only one of: 100, 200, 400 or 800")
 
@@ -98,7 +98,7 @@ class L3G4200D:
         self.data_buffer = [_DataPoint()]
         self.is_idle = True
 
-        self.filter = 0.3
+        self.filter = combine_filter
         self.sensitivity = 0.0175  # introduce FS (sensitivity) as 250, 500 or 2000
 
         self.init_gyro()

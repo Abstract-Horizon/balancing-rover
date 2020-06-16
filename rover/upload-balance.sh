@@ -6,7 +6,7 @@ DIR=$DIR/src/python/balance
 
 echo ""
 echo Uploading     balance
-pyros $1 upload -s balance $DIR/balance_main.py -e $DIR/balancing.py $DIR/accel.py $DIR/gyro.py
+pyros $1 upload -s balance $DIR/balance_main.py -e $DIR/balancing.py $DIR/accel.py $DIR/gyro.py $DIR/pid.py
 echo Restarting    balance
 pyros $1 restart   balance
 
