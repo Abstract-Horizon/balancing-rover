@@ -16,7 +16,7 @@ import time
 
 
 class PID:
-    def __init__(self, p_gain=0.75, i_gain=0.2, d_gain=0.05, gain=1.0, dead_band=1.0, difference=lambda x, y: x - y):
+    def __init__(self, p_gain=0.75, i_gain=0.2, d_gain=0.05, gain=1.0, dead_band=0.0001, i_gain_scale=1.0, d_gain_scale=100.0, difference=lambda x, y: x - y):
         self.set_point = 0.0
         self.p = 0.0
         self.i = 0.0
@@ -25,6 +25,8 @@ class PID:
         self.ki = i_gain
         self.kd = d_gain
         self.kg = gain
+        self.i_gain_scale = i_gain_scale
+        self.d_gain_scale = d_gain_scale
         self.dead_band = dead_band
         self.last_error = 0.0
         self.last_time = 0.0
@@ -81,10 +83,10 @@ class PID:
             elif abs(error) <= 0.1:
                 self.i = 0.0
             else:
-                self.i += error * delta_time
+                self.i += error * delta_time * self.i_gain_scale
 
             if delta_time > 0:
-                self.d = (error - self.last_error) / delta_time
+                self.d = (error - self.last_error) / (delta_time * self.d_gain_scale)
 
             output = self.p * self.kp + self.i * self.ki + self.d * self.kd
 
@@ -99,4 +101,4 @@ class PID:
         return output
 
     def __repr__(self):
-        return "p=" + str(self.p * self.kp) + ", i=" + str(self.i * self.ki) + ", d=" + str(self.d * self.kd) + ", last_delta=" + str(self.last_delta)
+        return f"PID(kp={self.kp}, ki={self.ki}, kd={self.kd}, kg={self.kg}, db={self.dead_band}; p={self.p * self.kp}, i={self.i * self.ki}, d={self.d * self.kd}, dt={self.last_delta})"

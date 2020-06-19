@@ -23,7 +23,8 @@ class BalancingService:
         'pid_outer': {'p': 0.75, 'i': 0.2, 'd': 0.05, 'g': 1.0},
         'gyro': {'filter': 0.3, 'freq': 200, 'bandwidth': 50},
         'accel': {'filter': 0.5, 'freq': 200},
-        'combine_factor_gyro': 0.95
+        'combine_factor_gyro': 0.95,
+        'expo': 0.2
     }
 
     def __init__(self):
@@ -63,32 +64,46 @@ class BalancingService:
             combine_factor_gyro=float(balance_map['combine_factor_gyro'])
         )
         self.balance.init()
+        self.balance.state = Balance.STATE_WAITING_FOR_READY
 
     def gyro_filter_changed(self, _topic, payload, _groups):
+        # print(f"Received gyro filter {_topic} : {payload}")
         self.balance.gyro.filter = float(payload)
 
     def accel_filter_changed(self, _topic, payload, _groups):
+        # print(f"Received accel filter {_topic} : {payload}")
         self.balance.accel.filter = float(payload)
 
     def combine_factor_gyro_changed(self, _topic, payload, _groups):
+        print(f"Received combine factor {_topic} : {payload}")
         self.balance.combine_factor_gyro = float(payload)
 
+    def expo_changed(self, _topic, payload, _groups):
+        print(f"Received expo {_topic} : {payload}")
+        self.balance.expo = float(payload)
+
     def pid_inner_changed(self, topic, payload, _groups):
+        # print(f"Received inner {topic} : {payload}")
         topic = topic[32:]
         # noinspection PyBroadException
         try:
             if "p" == topic:
                 self.balance.pid_inner.kp = float(payload)
+                # print(f"  ... updated pi_p to {self.balance.pid_inner.kp}")
             if "i" == topic:
                 self.balance.pid_inner.ki = float(payload)
+                # print(f"  ... updated pi_i to {self.balance.pid_inner.ki}")
             if "d" == topic:
                 self.balance.pid_inner.kd = float(payload)
+                # print(f"  ... updated pi_d to {self.balance.pid_inner.kd}")
             if "g" == topic:
                 self.balance.pid_inner.kg = float(payload)
-        except Exception:
-            pass
+                # print(f"  ... updated pi_g to {self.balance.pid_inner.kg}")
+        except Exception as ex:
+            print("ERROR: " + str(ex) + "\n" + ''.join(traceback.format_tb(ex.__traceback__)))
 
     def pid_outer_changed(self, topic, payload, _groups):
+        # print(f"Received outer {topic} : {payload}")
         topic = topic[32:]
         # noinspection PyBroadException
         try:
@@ -116,16 +131,25 @@ if __name__ == "__main__":
         balancing_service.init()
         print("    finished setting up main loop")
 
+        pyroslib.subscribe("storage/write/balance/gyro/filter", balancing_service.gyro_filter_changed)
+        pyroslib.subscribe("storage/write/balance/accel/filter", balancing_service.accel_filter_changed)
+        pyroslib.subscribe("storage/write/balance/combine_factor_gyro", balancing_service.combine_factor_gyro_changed)
+        pyroslib.subscribe("storage/write/balance/expo", balancing_service.expo_changed)
+        # pyroslib.subscribe("storage/write/balance/pid_inner/#", balancing_service.pid_inner_changed)
+        pyroslib.subscribe("storage/write/balance/pid_inner/p", balancing_service.pid_inner_changed)
+        pyroslib.subscribe("storage/write/balance/pid_inner/i", balancing_service.pid_inner_changed)
+        pyroslib.subscribe("storage/write/balance/pid_inner/d", balancing_service.pid_inner_changed)
+        pyroslib.subscribe("storage/write/balance/pid_inner/g", balancing_service.pid_inner_changed)
+        # pyroslib.subscribe("storage/write/balance/pid_outer/#", balancing_service.pid_outer_changed)
+        pyroslib.subscribe("storage/write/balance/pid_outer/p", balancing_service.pid_outer_changed)
+        pyroslib.subscribe("storage/write/balance/pid_outer/i", balancing_service.pid_outer_changed)
+        pyroslib.subscribe("storage/write/balance/pid_outer/d", balancing_service.pid_outer_changed)
+        pyroslib.subscribe("storage/write/balance/pid_outer/g", balancing_service.pid_outer_changed)
+
         pyroslib.subscribe("balancing/calibrate", balancing_service.calibrate)
         pyroslib.subscribe("balancing/start", balancing_service.start_callback)
         pyroslib.subscribe("balancing/stop", balancing_service.stop_callback)
         pyroslib.subscribe("balancing/request-info", balancing_service.request_info)
-
-        pyroslib.subscribe("storage/write/balance/gyro/filter", balancing_service.gyro_filter_changed)
-        pyroslib.subscribe("storage/write/balance/accel/filter", balancing_service.accel_filter_changed)
-        pyroslib.subscribe("storage/write/balance/combine_factor_gyro", balancing_service.combine_factor_gyro_changed)
-        pyroslib.subscribe("storage/write/balance/pid_inner/#", balancing_service.pid_inner_changed)
-        pyroslib.subscribe("storage/write/balance/pid_outer/#", balancing_service.pid_inner_changed)
 
         print("Started balancing service.")
 

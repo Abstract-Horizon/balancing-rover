@@ -1,10 +1,24 @@
+################################################################################
+# Copyright (C) 2020 Abstract Horizon
+# All rights reserved. This program and the accompanying materials
+# are made available under the terms of the Apache License v2.0
+# which accompanies this distribution, and is available at
+# https://www.apache.org/licenses/LICENSE-2.0
+#
+#  Contributors:
+#    Daniel Sendula - initial API and implementation
+#
+#################################################################################
+
 import smbus
 import time
 
+#
+# As per https://morf.lv/mems-part-2-guide-to-using-gyroscope-l3g4200d
+#
 
-# Get I2C bus
+
 bus = smbus.SMBus(1)
-
 
 CTRL_REG1 = 0x20
 CTRL_REG2 = 0x21
@@ -72,7 +86,7 @@ class _DataPoint:
 
 class L3G4200D:
     ALLOWED_FREQ_BANDWIDTH_COMBINATIONS = {
-        100: { '_': 0x00, 12.5: 0, 25: 0x10},
+        100: {'_': 0x00, 12.5: 0, 25: 0x10},
         200: {'_': 0x40, 12.5: 0, 25: 0x10, 50: 0x20, 70: 0x30},
         400: {'_': 0x80, 20: 0, 25: 0x10, 50: 0x20, 110: 0x30},
         800: {'_': 0xC0, 30: 0, 35: 0x10, 50: 0x20, 110: 0x30}
@@ -96,10 +110,10 @@ class L3G4200D:
         self.cz = 0
         self.buffer_len_in_time = 10
         self.data_buffer = [_DataPoint()]
-        self.is_idle = True
 
         self.filter = combine_filter
         self.sensitivity = 0.0175  # introduce FS (sensitivity) as 250, 500 or 2000
+        self.sensitivity = 0.00875  # introduce FS (sensitivity) as 250, 500 or 2000
 
         self.init_gyro()
 
@@ -109,24 +123,17 @@ class L3G4200D:
         bus.write_byte_data(self.address, CTRL_REG1, ctrl1)  # Output data rate 800Hz, freq cut-off 50 (Hz?), normal mode (not power down), all axes (x, y, z) enabled
         bus.write_byte_data(self.address, CTRL_REG2, 0x0)
         bus.write_byte_data(self.address, CTRL_REG3, 0x0)
-        bus.write_byte_data(self.address, CTRL_REG4, 0x20)  # Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
+        # bus.write_byte_data(self.address, CTRL_REG4, 0x20)  # Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
         # bus.write_byte_data(self.address, CTRL_REG4, 0x30)  # Not block (continuous update), LSB @ lower address, FSR 2000dps, self test disabled, i2c interface
+        bus.write_byte_data(self.address, CTRL_REG4, 0x80)  # Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
         bus.write_byte_data(self.address, CTRL_REG5, 0x40)  # FIFO enabled
-        self.idle()
+        bus.write_byte_data(self.address, FIFO_CTRL_REG, 0x60)  # FIFO Stream mode
 
     def set_buffer_len(self, len_in_time):
         self.buffer_len_in_time = len_in_time
 
     def get_buffer_len(self):
         return self.buffer_len_in_time
-
-    def idle(self):
-        self.is_idle = True
-        bus.write_byte_data(self.address, FIFO_CTRL_REG, 0x00)  # Bypass mode
-
-    def start(self):
-        bus.write_byte_data(self.address, FIFO_CTRL_REG, 0x60)  # FIFO Stream mode
-        self.is_idle = False
 
     def calibrate(self, calibration_time):
         reads = 0
@@ -185,20 +192,13 @@ class L3G4200D:
             self.data_buffer.append(_data_point)
             return _data_point
 
-        def sanitise_angle(angle):
-            if angle >= 180.0:
-                angle -= 360.0
-            elif angle < -180.0:
-                angle += 360.0
-            return angle
-
         now = time.time()
         cut_off_buf_time = now - self.buffer_len_in_time
 
         waited_for_data = False
         status = bus.read_byte_data(self.address, STATUS_REG)
 
-        while (status & 0xf) != 0xf and not self.is_idle:
+        while (status & 0xf) != 0xf:
             if time.time() - 1 > now:
                 print(f"{now}:  Waited for 1s for data {bin(status)}")
             waited_for_data = True
@@ -211,16 +211,13 @@ class L3G4200D:
         fifo_status = bus.read_byte_data(self.address, FIFO_SRC_REG)
 
         result_data = []
-        if self.is_idle:
+
+        while fifo_status & 0x1f != 0:
+            if time.time() - 1 > now:
+                print(f"Collected data for more than 1s {bin(fifo_status)}")
             data_point = read_data(status, fifo_status, cut_off_buf_time)
             result_data.append(data_point)
-        else:
-            while fifo_status & 0x1f != 0:
-                if time.time() - 1 > now:
-                    print(f"Collected data for more than 1s {bin(fifo_status)}")
-                data_point = read_data(status, fifo_status, cut_off_buf_time)
-                result_data.append(data_point)
-                fifo_status = bus.read_byte_data(self.address, FIFO_SRC_REG)
+            fifo_status = bus.read_byte_data(self.address, FIFO_SRC_REG)
 
         for data_point in result_data:
             dx, dy, dz = data_point.get_deltas()
