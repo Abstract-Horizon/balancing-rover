@@ -12,8 +12,6 @@
 
 from __future__ import annotations
 
-import time
-
 
 class PID:
     def __init__(self, p_gain=0.75, i_gain=0.2, d_gain=0.05, gain=1.0, dead_band=0.0001, i_gain_scale=1.0, d_gain_scale=100.0, difference=lambda x, y: x - y):
@@ -61,8 +59,7 @@ class PID:
             return diff + 360
         return diff
 
-    def process(self, set_point, current):
-        now = time.time()
+    def process(self, time, set_point, current):
 
         error = self.difference(set_point, current)
         if abs(error) <= self.dead_band:
@@ -72,15 +69,15 @@ class PID:
             self.first = False
             self.set_point = set_point
             self.last_error = error
-            self.last_time = now
+            self.last_time = time
             return 0
         else:
-            delta_time = now - self.last_time
+            delta_time = time - self.last_time
 
             self.p = error
             if self.last_error < 0 < error or self.last_error > 0 > error:
                 self.i = 0.0
-            elif abs(error) <= 0.1:
+            elif abs(error) <= 0.01:
                 self.i = 0.0
             else:
                 self.i += error * delta_time * self.i_gain_scale
@@ -95,7 +92,7 @@ class PID:
             self.set_point = set_point
             self.last_output = output
             self.last_error = error
-            self.last_time = now
+            self.last_time = time
             self.last_delta = delta_time
 
         return output

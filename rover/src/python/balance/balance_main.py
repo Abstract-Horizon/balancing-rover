@@ -21,10 +21,11 @@ class BalancingService:
     _TEMPLATE_STORAGE = {
         'pid_inner': {'p': 0.75, 'i': 0.2, 'd': 0.05, 'g': 1.0},
         'pid_outer': {'p': 0.75, 'i': 0.2, 'd': 0.05, 'g': 1.0},
-        'gyro': {'filter': 0.3, 'freq': 200, 'bandwidth': 50},
-        'accel': {'filter': 0.5, 'freq': 200},
+        'bump': {'threshold': 0.10, 'delay': 0.2, 'gain': 1.0, 'step': 0.2, 'len': 0.3},
+        'gyro': {'filter': 0.3, 'bandwidth': 25},
+        'accel': {'filter': 0.5},
         'combine_factor_gyro': 0.95,
-        'expo': 0.2
+        'freq': 100
     }
 
     def __init__(self):
@@ -54,14 +55,18 @@ class BalancingService:
         print(f"  ... balance_map:  {balance_map}")
 
         self.balance = Balance(
-            gyro_freq=int(balance_map['gyro']['freq']),
+            freq=int(balance_map['freq']),
             gyro_bandwidth=float(balance_map['gyro']['bandwidth']),
             gyro_filter=float(balance_map['gyro']['filter']),
-            accel_freq=int(balance_map['accel']['freq']),
             accel_filter=float(balance_map['accel']['filter']),
             pid_inner=PID().update_gains_from_map(balance_map['pid_inner']),
             pid_outer=PID().update_gains_from_map(balance_map['pid_outer']),
-            combine_factor_gyro=float(balance_map['combine_factor_gyro'])
+            combine_factor_gyro=float(balance_map['combine_factor_gyro']),
+            bump_threshold=float(balance_map['bump']['threshold']),
+            bump_delay=float(balance_map['bump']['delay']),
+            bump_gain=float(balance_map['bump']['gain']),
+            bump_step=float(balance_map['bump']['step']),
+            bump_len=float(balance_map['bump']['len']),
         )
         self.balance.init()
         self.balance.state = Balance.STATE_WAITING_FOR_READY
@@ -77,10 +82,6 @@ class BalancingService:
     def combine_factor_gyro_changed(self, _topic, payload, _groups):
         print(f"Received combine factor {_topic} : {payload}")
         self.balance.combine_factor_gyro = float(payload)
-
-    def expo_changed(self, _topic, payload, _groups):
-        print(f"Received expo {_topic} : {payload}")
-        self.balance.expo = float(payload)
 
     def pid_inner_changed(self, topic, payload, _groups):
         # print(f"Received inner {topic} : {payload}")
@@ -99,8 +100,8 @@ class BalancingService:
             if "g" == topic:
                 self.balance.pid_inner.kg = float(payload)
                 # print(f"  ... updated pi_g to {self.balance.pid_inner.kg}")
-        except Exception as ex:
-            print("ERROR: " + str(ex) + "\n" + ''.join(traceback.format_tb(ex.__traceback__)))
+        except Exception as e:
+            print("ERROR: " + str(e) + "\n" + ''.join(traceback.format_tb(e.__traceback__)))
 
     def pid_outer_changed(self, topic, payload, _groups):
         # print(f"Received outer {topic} : {payload}")
@@ -115,8 +116,27 @@ class BalancingService:
                 self.balance.pid_outer.kd = float(payload)
             if "g" == topic:
                 self.balance.pid_outer.kg = float(payload)
-        except Exception:
-            pass
+        except Exception as e:
+            print("ERROR: " + str(e) + "\n" + ''.join(traceback.format_tb(e.__traceback__)))
+
+    def bump_changed(self, topic, payload, _groups):
+        print(f"Received outer {topic} : {payload}")
+        topic = topic[27:]
+        # noinspection PyBroadException
+        try:
+            if "threshold" == topic:
+                self.balance.bump_threshold = float(payload)
+                print(f"Got threshold of {self.balance.bump_threshold}")
+            if "delay" == topic:
+                self.balance.bump_delay = float(payload)
+            if "gain" == topic:
+                self.balance.bump_gain = float(payload)
+            if "step" == topic:
+                self.balance.bump_step = float(payload)
+            if "len" == topic:
+                self.balance.bump_len = float(payload)
+        except Exception as e:
+            print("ERROR: " + str(e) + "\n" + ''.join(traceback.format_tb(e.__traceback__)))
 
 
 if __name__ == "__main__":
@@ -134,7 +154,6 @@ if __name__ == "__main__":
         pyroslib.subscribe("storage/write/balance/gyro/filter", balancing_service.gyro_filter_changed)
         pyroslib.subscribe("storage/write/balance/accel/filter", balancing_service.accel_filter_changed)
         pyroslib.subscribe("storage/write/balance/combine_factor_gyro", balancing_service.combine_factor_gyro_changed)
-        pyroslib.subscribe("storage/write/balance/expo", balancing_service.expo_changed)
         # pyroslib.subscribe("storage/write/balance/pid_inner/#", balancing_service.pid_inner_changed)
         pyroslib.subscribe("storage/write/balance/pid_inner/p", balancing_service.pid_inner_changed)
         pyroslib.subscribe("storage/write/balance/pid_inner/i", balancing_service.pid_inner_changed)
@@ -145,6 +164,11 @@ if __name__ == "__main__":
         pyroslib.subscribe("storage/write/balance/pid_outer/i", balancing_service.pid_outer_changed)
         pyroslib.subscribe("storage/write/balance/pid_outer/d", balancing_service.pid_outer_changed)
         pyroslib.subscribe("storage/write/balance/pid_outer/g", balancing_service.pid_outer_changed)
+        # pyroslib.subscribe("storage/write/balance/bump/#", balancing_service.bump_changed)
+        pyroslib.subscribe("storage/write/balance/bump/threshold", balancing_service.bump_changed)
+        pyroslib.subscribe("storage/write/balance/bump/delay", balancing_service.bump_changed)
+        pyroslib.subscribe("storage/write/balance/bump/step", balancing_service.bump_changed)
+        pyroslib.subscribe("storage/write/balance/bump/gain", balancing_service.bump_changed)
 
         pyroslib.subscribe("balancing/calibrate", balancing_service.calibrate)
         pyroslib.subscribe("balancing/start", balancing_service.start_callback)

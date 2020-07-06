@@ -16,8 +16,6 @@ import threading
 import time
 import math
 
-from storage import storagelib
-
 from balance.accel import ADXL345
 from balance.gyro import L3G4200D
 from balance.pigpio_motors import PIGPIOMotors
@@ -32,21 +30,26 @@ class Balance:
     STATE_BALANCING = 2
 
     def __init__(self,
-                 gyro_freq=200,
-                 gyro_bandwidth=50,
+                 freq=200,
+                 gyro_bandwidth=25,
                  gyro_filter=0.3,
-                 accel_freq=200,
                  accel_filter=0.5,
                  combine_factor_gyro=0.95,
                  max_deg=45.0,
-                 expo=0.2,
+                 bump_threshold=0.10,
+                 bump_delay=0.2,
+                 bump_gain=1.0,
+                 bump_step=0.2,
+                 bump_len=0.3,
                  pid_inner: PID = None,
                  pid_outer: PID = None):
 
         self._debug = False
 
-        self.gyro = L3G4200D(freq=gyro_freq, bandwidth=gyro_bandwidth, combine_filter=gyro_filter)
-        self.accel = ADXL345(freq=accel_freq, combine_filter=accel_filter)
+        self.freq = freq
+
+        self.gyro = L3G4200D(freq=freq, bandwidth=gyro_bandwidth, combine_filter=gyro_filter)
+        self.accel = ADXL345(freq=freq, combine_filter=accel_filter)
         self.motors = PIGPIOMotors()
         self.combine_factor_gyro = combine_factor_gyro
         self.cx = 0.0
@@ -54,9 +57,16 @@ class Balance:
         self.cz = 0.0
 
         self.max_deg = max_deg
-        self.expo = expo
-        self.output_dead_band = 0.001
-        self.output_offset = 0.05
+        self.bump_threshold=bump_threshold
+        self.bump_delay=bump_delay
+        self.bump_gain=bump_gain
+        self.bump_step=bump_step
+        self.bump_len=bump_len
+        self.bump_found=None
+        self.bump_in_place=None
+        # self.expo = expo
+        # self.output_dead_band = 0.001
+        # self.output_offset = 0.05
 
         self.telemetry_port = 1860
 
@@ -68,23 +78,35 @@ class Balance:
         self.pid_outer: PID = pid_outer if pid_outer is not None else PID().update_gains_from_map(self._DEFAULT_PID)
 
         print("Starting balance with following config values:")
-        print(f"  Gyro  freq={gyro_freq}, bandwidth={gyro_bandwidth} and filter={gyro_filter}")
-        print(f"  Accel freq={accel_freq} and filter={accel_filter}")
+        print(f"  Freq {self.freq}")
+        print(f"  Gyro  freq={freq}, bandwidth={gyro_bandwidth} and filter={gyro_filter}")
+        print(f"  Accel freq={freq} and filter={accel_filter}")
         print(f"  Combine factor of  {combine_factor_gyro}")
-        print(f"  expo {self.expo}")
+        print(f"  Bump threshold={self.bump_threshold}, delay={self.bump_delay}, gain={self.bump_gain}, step={self.bump_gain}, len={self.bump_len}")
+
+        # print(f"  expo {self.expo}")
         print(f"  PID inner {pid_inner}")
         print(f"  PID outer {pid_outer}")
 
     def run_loop(self):
         print("    started loop thread.")
         had_exception = False
-        last_log = 0
+
         output = 0
         last_state = self.state
+        last_time = time.time()
+        delta_time = 0
+        pid_time = 0
+        # step_factor = 10
+        # amplitude = 13  # 0.02  0.08
+        # longitude = 100  # 10/s
+
+        bump = 0
+        control = 0
+        last_cy = None
 
         while True:
             try:
-
                 gyro_data_points = self.gyro.read_deltas()
                 accel_data_point = self.accel.read()
 
@@ -108,15 +130,64 @@ class Balance:
                     self.cy = (self.cy + gyro_y / self.gyro.freq) * self.combine_factor_gyro + accel_pitch * (1 - self.combine_factor_gyro)
                     self.cz = (self.cz + gyro_z / self.gyro.freq) * self.combine_factor_gyro + accel_roll * (1 - self.combine_factor_gyro)
 
-                    output = self.pid_inner.process(0.0, self.cy / 45.0)
-                    sign = -1 if output < 0 else 1
-                    # output = sign * output * output * self.expo + output * (1 - self.expo)
-                    if -self.output_dead_band < output < self.output_dead_band:
-                        output = 0.0
-                    elif output > 0:
-                        output += self.output_offset
+                    now = time.time()
+                    delta_time = now - last_time
+                    last_time = now
+
+                    output = self.pid_inner.process(pid_time, 0.0, math.sin(self.cy * math.pi / 90.0) * 2)
+
+                    # bump processing
+                    if last_cy is None:
+                        last_cy = self.cy
                     else:
-                        output -= self.output_offset
+                        angle_change = self.cy - last_cy
+                        last_cy = self.cy
+
+                        # Is it going in wrong direction - away from set point (zero)?
+                        if (self.cy < 0 and angle_change < 0) or (self.cy > 0 and angle_change > 0):
+                            if self.bump_found is None:
+                                if abs(angle_change) >= self.bump_threshold:
+                                    self.bump_found = now
+                                    # print(f" --- got bump delaying {self.cy}, delta={angle_change}")
+
+                            if self.bump_found is not None and self.bump_found + self.bump_delay <= now:
+                                self.bump_found = None
+                                self.bump_in_place = now
+
+                            if self.bump_in_place is not None:
+                                if self.bump_in_place + self.bump_len <= now:
+                                    self.bump_in_place = None
+                                    bump = 0
+                                else:
+                                    bump = self.bump_step + self.cy * self.bump_gain / 45.0
+                                    # print(f" --- got bump acting {self.cy}, delta={bump}")
+                                    if angle_change > 0:
+                                        output -= bump
+                                    else:
+                                        output += bump
+
+                        else:
+                            bump = 0
+                            self.bump_found = None
+                            self.bump_in_place = None
+
+                    # output = round(round(output * step_factor, 1) / step_factor, 2)
+                    # output += math.sin(now * longitude) / amplitude
+
+                    output -= math.sin(self.cy * math.pi / 180)
+
+                    control = output
+
+                    pid_time += 1 / self.freq
+
+                    # sign = -1 if output < 0 else 1
+                    # output = sign * output * output * self.expo + output * (1 - self.expo)
+                    # if -self.output_dead_band < output < self.output_dead_band:
+                    #     output = 0.0
+                    # elif output > 0:
+                    #     output += self.output_offset
+                    # else:
+                    #     output -= self.output_offset
 
                     self._logger.log(time.time(),
                                      gyro_dx, gyro_dy, gyro_dz,
@@ -128,9 +199,10 @@ class Balance:
                                      self.cx, self.cy, self.cz,
                                      self.pid_inner.p, self.pid_inner.i, self.pid_inner.d,
                                      self.pid_inner.p * self.pid_inner.kp, self.pid_inner.i * self.pid_inner.ki, self.pid_inner.d * self.pid_inner.kd,
-                                     self.pid_inner.last_delta,
-                                     self.pid_inner.last_output,
-                                     output)
+                                     delta_time,
+                                     output,
+                                     control,
+                                     bump)
 
                 if self.state == self.STATE_WAITING_FOR_READY and -4 < self.cy < 4:
                     self.state = self.STATE_BALANCING
@@ -142,8 +214,8 @@ class Balance:
                         self.motors.right_speed(0.0)
                         print(f"*** Got over {self.max_deg} def stopping!")
                     else:
-                        self.motors.left_speed(output)
-                        self.motors.right_speed(output)
+                        self.motors.left_speed(control)
+                        self.motors.right_speed(control)
 
                 if last_state != self.state:
                     last_state = self.state
@@ -191,6 +263,7 @@ class Balance:
         self._logger.add_double('pi_dt')
         self._logger.add_double('pi_o')
         self._logger.add_double('out')
+        self._logger.add_double('bump')
 
         self._logger.init()
         self.telemetry_server.start()

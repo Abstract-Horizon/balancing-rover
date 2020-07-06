@@ -17,7 +17,7 @@ gpios = pigpio.pi()
 
 
 class PIGPIOMotors:
-    def __init__(self, left_pwm_pin=20, left_in1_pin=5, left_in2_pin=6, right_pwm_pin=26, right_in1_pin=13, right_in2_pin=19, pwm_freq=8000):
+    def __init__(self, left_pwm_pin=20, left_in1_pin=6, left_in2_pin=5, right_pwm_pin=26, right_in1_pin=13, right_in2_pin=19, pwm_freq=8000):
         self.left_pwm_pin = left_pwm_pin
         self.left_in1_pin = left_in1_pin
         self.left_in2_pin = left_in2_pin

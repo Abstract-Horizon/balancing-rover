@@ -96,6 +96,7 @@ class ValuesPanel(Collection):
             'pid_outer': {'p': 0.75, 'i': 0.2, 'd': 0.05, 'g': 1.0},
             'gyro': {'filter': 0.3, 'freq': 200, 'bandwidth': 50},
             'accel': {'filter': 0.5, 'freq': 200},
+            'bump': {'threshold': 0.10, 'delay': 0.2, 'gain': 1.0, 'step': 0.2, 'len': 0.3},
             'combine_factor_gyro': 0.95,
             'expo': 0.2
         }
@@ -106,16 +107,25 @@ class ValuesPanel(Collection):
         pyros.subscribe("storage/write/balance/expo", self.expo_changed)
         pyros.subscribe("storage/write/balance/pid_inner/#", self.pid_inner_changed)
         pyros.subscribe("storage/write/balance/pid_outer/#", self.pid_inner_changed)
+        pyros.subscribe("storage/write/balance/bump/#", self.bump_changed)
 
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("gyro/filter"), 'g-f', button_font=_ui_factory.get_small_font()))
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("accel/filter"), 'a-f', button_font=_ui_factory.get_small_font()))
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("combine_factor_gyro"), 'c-f', button_font=_ui_factory.get_small_font()))
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("expo"), 'expo', button_font=_ui_factory.get_small_font()))
+        button_height = 40
+
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("gyro/filter"), 'g-f', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("accel/filter"), 'a-f', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("combine_factor_gyro"), 'c-f', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("expo"), 'expo', button_font=_ui_factory.get_small_font()))
         self.add_component(Component(Rect(0, 0, 300, 10)))
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("pid_inner/p"), 'pi-p', button_font=_ui_factory.get_small_font()))
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("pid_inner/i"), 'pi-i', button_font=_ui_factory.get_small_font()))
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("pid_inner/d"), 'pi-d', button_font=_ui_factory.get_small_font()))
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, 50), _ui_factory, self.create_getter_and_setter("pid_inner/g"), 'pi-g', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("pid_inner/p"), 'pi-p', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("pid_inner/i"), 'pi-i', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("pid_inner/d"), 'pi-d', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("pid_inner/g"), 'pi-g', button_font=_ui_factory.get_small_font()))
+        self.add_component(Component(Rect(0, 0, 300, 10)))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("bump/threshold"), 'b-t', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("bump/delay"), 'b-d', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("bump/gain"), 'b-g', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("bump/step"), 'b-s', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("bump/len"), 'b-l', button_font=_ui_factory.get_small_font()))
 
         pyros_client_app.add_on_connected_subscriber(self.read_values)
 
@@ -149,6 +159,24 @@ class ValuesPanel(Collection):
     def expo_changed(self, _topic, payload, _groups):
         print(f"Expo {_topic} : {payload}")
         self.cached_values['expo'] = float(payload)
+
+    def bump_changed(self, topic, payload, _groups):
+        print(f"Received bump data {topic} : {payload}")
+        topic = topic[27:]
+        # noinspection PyBroadException
+        try:
+            if "threshold" == topic:
+                self.cached_values['bump']['threshold'] = float(payload)
+            if "delay" == topic:
+                self.cached_values['bump']['delay'] = float(payload)
+            if "gain" == topic:
+                self.cached_values['bump']['gain'] = float(payload)
+            if "step" == topic:
+                self.cached_values['bump']['step'] = float(payload)
+            if "len" == topic:
+                self.cached_values['bump']['len'] = float(payload)
+        except Exception:
+            pass
 
     def pid_inner_changed(self, topic, payload, _groups):
         print(f"Received inner {topic} : {payload}")
@@ -296,15 +324,16 @@ class BalancingRoverTelemetry(Collection):
         self._graph_data["cx"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'cx', 180, -180.0)
         self._graph_data["cy"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'cy', 180, -180.0)
         self._graph_data["cz"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'cz', 180, -180.0)
-        self._graph_data["pi_p"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_p', 1.0, -1.0, auto_scale=True)
-        self._graph_data["pi_i"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_i', 1.0, -1.0, auto_scale=True)
-        self._graph_data["pi_d"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_d', 1.0, -1.0, auto_scale=True)
-        self._graph_data["pi_pg"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_pg', 1.0, -1.0, auto_scale=True)
-        self._graph_data["pi_ig"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_ig', 1.0, -1.0, auto_scale=True)
-        self._graph_data["pi_dg"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_dg', 1.0, -1.0, auto_scale=True)
-        self._graph_data["pi_dt"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_dt', 1.0, -1.0, auto_scale=True)
+        self._graph_data["pi_p"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_p', 0.1, -0.1, auto_scale=True)
+        self._graph_data["pi_i"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_i', 0.1, -0.1, auto_scale=True)
+        self._graph_data["pi_d"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_d', 0.1, -0.1, auto_scale=True)
+        self._graph_data["pi_pg"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_pg', 0.1, -0.1, auto_scale=True)
+        self._graph_data["pi_ig"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_ig', 0.1, -0.1, auto_scale=True)
+        self._graph_data["pi_dg"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_dg', 0.1, -0.1, auto_scale=True)
+        self._graph_data["pi_dt"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_dt', 0.001, -0.001, auto_scale=True)
         self._graph_data["pi_o"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'pi_o', 0.1, -0.1, auto_scale=True)
         self._graph_data["out"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'out', 0.1, -0.1, auto_scale=True)
+        self._graph_data["bump"] = TelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'bump', 0.1, -0.1, auto_scale=True)
         self._graph_data["pi_slo"] = ChangedSingleTelemetryGraphData(self.telemetry_client, self.telemetry_client.streams['balance-data'], 'out', 10.0, -10.0, lambda x: x * 100, auto_scale=True)
 
         self.sensors_graphs_panel.main_graph.set_graph_data(self._graph_data['cy'])
@@ -328,8 +357,8 @@ class BalancingRoverTelemetry(Collection):
         self.pid_graphs_panel.graphs[0][1].set_graph_data(self._graph_data['pi_ig'])
         self.pid_graphs_panel.graphs[0][2].set_graph_data(self._graph_data['pi_dg'])
 
-        self.pid_graphs_panel.graphs[1][0].set_graph_data(self._graph_data['pi_o'])
-        self.pid_graphs_panel.graphs[1][1].set_graph_data(self._graph_data['out'])
+        self.pid_graphs_panel.graphs[1][0].set_graph_data(self._graph_data['pi_dt'])
+        self.pid_graphs_panel.graphs[1][1].set_graph_data(self._graph_data['bump'])
         self.pid_graphs_panel.graphs[1][2].set_graph_data(self._graph_data['pi_slo'])
 
     def key_down(self, key):

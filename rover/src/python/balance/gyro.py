@@ -94,10 +94,10 @@ class L3G4200D:
 
     def __init__(self, address=0x69, freq=400, bandwidth=50, combine_filter=0.3):
         if freq not in self.ALLOWED_FREQ_BANDWIDTH_COMBINATIONS:
-            raise ValueError("Fequency can be only one of: 100, 200, 400 or 800")
+            raise ValueError("Fequency can be only one of: 100, 200, 400 or 800; but got {freq}")
 
         if bandwidth not in self.ALLOWED_FREQ_BANDWIDTH_COMBINATIONS[freq]:
-            raise ValueError(f"Bandwidth for frequency {freq} can be only one of: {[b for b in self.ALLOWED_FREQ_BANDWIDTH_COMBINATIONS[freq] if b != '_']}")
+            raise ValueError(f"Bandwidth {bandwidth} for frequency {freq} can be only one of: {[b for b in self.ALLOWED_FREQ_BANDWIDTH_COMBINATIONS[freq] if b != '_']}")
 
         self.address = address
         self.px = 0
