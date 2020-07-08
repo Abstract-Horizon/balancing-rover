@@ -1,6 +1,6 @@
 pyros-client
 pyros-telemetry
-gyros-storage
+pyros-storage
 pygame
 paho-mqtt
 local-resources
