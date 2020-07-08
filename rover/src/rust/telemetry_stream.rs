@@ -50,8 +50,8 @@ impl FieldType for FieldTypeSignedByte {
 }
 
 
-struct FieldTypensignedWord;
-impl FieldType for FieldTypensignedWord {
+struct FieldTypeUnsignedWord;
+impl FieldType for FieldTypeUnsignedWord {
     fn size(&self) -> usize { 2 }
 
     fn type_shortcode(&self) -> &'static str { "w" }
@@ -293,6 +293,7 @@ impl TelemetryStreamDefinition {
         }
     }
 
+    #[allow(dead_code)]
     pub fn name(&self) -> &'static str {
         self.name
     }
@@ -319,6 +320,7 @@ impl TelemetryStreamDefinition {
         self.fields.iter()
     }
 
+    #[allow(dead_code)]
     pub fn unsigned_byte_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeUnsignedByte> {
             field_name: name,
@@ -327,6 +329,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn signed_byte_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeSignedByte> {
             field_name: name,
@@ -335,14 +338,16 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn unsigned_word_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
-        Box::new(TelemetryStreamFieldStruct::<FieldTypensignedWord> {
+        Box::new(TelemetryStreamFieldStruct::<FieldTypeUnsignedWord> {
             field_name: name,
-            field_type: FieldTypensignedWord,
-            field_size: FieldTypensignedWord.size(),
+            field_type: FieldTypeUnsignedWord,
+            field_size: FieldTypeUnsignedWord.size(),
         })
     }
 
+    #[allow(dead_code)]
     pub fn signed_word_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeSignedWord> {
             field_name: name,
@@ -351,6 +356,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn unsigned_integer_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeUnsignedInteger> {
             field_name: name,
@@ -359,6 +365,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn signed_integer_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeSignedInteger> {
             field_name: name,
@@ -367,6 +374,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn unsigned_long_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeUnsignedLong> {
             field_name: name,
@@ -375,6 +383,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn signed_long_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeSignedLong> {
             field_name: name,
@@ -383,6 +392,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn float_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeFloat> {
             field_name: name,
@@ -391,6 +401,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn double_field(name: &'static str) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeDouble> {
             field_name: name,
@@ -399,6 +410,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn string_field(name: &'static str, string_size: usize) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeString> {
             field_name: name,
@@ -407,6 +419,7 @@ impl TelemetryStreamDefinition {
         })
     }
 
+    #[allow(dead_code)]
     pub fn bytes_field(name: &'static str, bytes_size: usize) -> Box<dyn TelemetryStreamField + Sync + Send> {
         Box::new(TelemetryStreamFieldStruct::<FieldTypeBytes> {
             field_name: name,

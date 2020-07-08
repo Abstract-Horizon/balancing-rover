@@ -9,26 +9,33 @@
 //    Daniel Sendula - initial API and implementation
 //
 
-#![feature(macro_rules)]
+// #![feature(macro_rules)]
 
 
 mod telemetry_stream;
 
-#[macro_use]
+// #[macro_use]
 mod telemetry_socket_server;
 
+mod pid;
 mod balance;
 mod gyro;
-
-
-
+mod accel;
 
 use balance::Balance;
+
+
+use std::time::Duration;
+use std::thread;
 
 
 
 fn main() {
     let balance = Balance::new();
 
-    balance.run_loop()
+    let balance_control = balance.start();
+
+    thread::sleep(Duration::from_secs(3600));
+
+    balance_control.stop();
 }

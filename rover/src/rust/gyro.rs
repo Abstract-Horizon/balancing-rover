@@ -9,8 +9,6 @@
 //    Daniel Sendula - initial API and implementation
 //
 
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use byteorder::{ByteOrder, LittleEndian};
 
 use phf::phf_map;
@@ -64,17 +62,17 @@ const FREQ_BANDWIDTH_800_111: u8 = 0xF0;
 
 // #[derive(Clone)]
 pub struct DataPoint {
-    dx: i16,
-    dy: i16,
-    dz: i16,
-    status: u16,
-    fifo_status: u8
+    pub dx: i16,
+    pub dy: i16,
+    pub dz: i16,
+    pub status: u16,
+    pub fifo_status: u8
 }
 
 impl DataPoint {
-    fn empty() -> DataPoint {
-        DataPoint { dx: 0, dy: 0, dz: 0, status: 0, fifo_status: 0 }
-    }
+//    fn empty() -> DataPoint {
+//        DataPoint { dx: 0, dy: 0, dz: 0, status: 0, fifo_status: 0 }
+//    }
 
     fn new(dx: i16, dy: i16, dz: i16, status: u16, fifo_status: u8) -> DataPoint {
         DataPoint { dx, dy, dz, status, fifo_status }
@@ -96,18 +94,19 @@ const ALLOWED_FREQ_BANDWIDTH_COMBINATIONS: phf::Map<u16, phf::Map<&'static str, 
 
 pub struct L3G4200D {
     bus: I2c,
-    address: u8,
-    freq: u16,
-    bandwidth: &'static str, 
-    combine_filter: f64,
-    px: f64,
-    py: f64,
-    pz: f64,
-    cx: f64,
-    cy: f64,
-    cz: f64,
-    buffer_len_in_time: f64,
-    data_buffer: Vec<DataPoint>,
+//    address: u8,
+    freq_u16: u16,
+    pub freq: f64,
+    pub bandwidth: &'static str,
+    pub combine_filter: f64,
+    pub px: f64,
+    pub py: f64,
+    pub pz: f64,
+    pub cx: f64,
+    pub cy: f64,
+    pub cz: f64,
+//    buffer_len_in_time: f64,
+//    data_buffer: Vec<DataPoint>,
     sensitivity: f64,
 }
 
@@ -127,12 +126,13 @@ impl L3G4200D {
 
         let result = L3G4200D {
             bus,
-            address, freq, bandwidth, combine_filter,
+            freq_u16: freq,
+            freq: freq as f64,
+            bandwidth,
+            combine_filter,
             px: 0.0, py: 0.0, pz: 0.0,
             cx: 0.0, cy: 0.0, cz: 0.0,
             sensitivity: 0.00875,
-            buffer_len_in_time: 10.0,
-            data_buffer: vec![DataPoint::empty()]
         };
 
         result.init_gyro();
@@ -141,7 +141,7 @@ impl L3G4200D {
     }
     
     fn init_gyro(&self) {
-        let selected_freq = ALLOWED_FREQ_BANDWIDTH_COMBINATIONS.get(&self.freq).unwrap();
+        let selected_freq = ALLOWED_FREQ_BANDWIDTH_COMBINATIONS.get(&self.freq_u16).unwrap();
         let ctrl1 = 0xf + selected_freq.get("_").unwrap() + selected_freq.get(self.bandwidth).unwrap();
 
         self.bus.smbus_write_byte(CTRL_REG1, ctrl1).expect("Cannot set REG1 on i2c");  // Output data rate 800Hz, freq cut-off 50 (Hz?), normal mode (not power down), all axes (x, y, z) enabled
@@ -156,35 +156,20 @@ impl L3G4200D {
         println!("Initialised L3G4200D i2c device.");
     }
 
-    fn read_data(&self, status: u16, fifo_status: u8, _cut_off_buf_time: f64) -> DataPoint {
-//        let data_point = if self.data_buffer.len() > 0 && self.data_buffer[0].time < cut_off_buf_time {
-//            let data_point = self.data_buffer[0];
-//            self.data_buffer.remove(0);
-//            data_point
-//        } else {
-//            DataPoint::empty()
-//        }
-
+    fn read_data(&self, status: u16, fifo_status: u8) -> DataPoint {
+        let command: [u8; 1] = [OUT_X_L + 0x80];
         let mut buf = [0u8; 6];
-        let _ = self.bus.smbus_block_read(OUT_X_L + 0x80, &mut buf).expect("Cannot read 6 bytes from i2c");
+        let _ = self.bus.write_read(&command, &mut buf).expect("Cannot read 6 bytes from i2c");
 
-        let dx = LittleEndian::read_i16(&buf[0..1]);
-        let dy = LittleEndian::read_i16(&buf[2..3]);
-        let dz = LittleEndian::read_i16(&buf[4..5]);
+        let dx = LittleEndian::read_i16(&buf[0..2]);
+        let dy = LittleEndian::read_i16(&buf[2..4]);
+        let dz = LittleEndian::read_i16(&buf[4..6]);
 
         DataPoint::new(dx, dy, dz, status, fifo_status)
-//
-//        self.data_buffer.push(data_point);
-//        
-//        data_point
     }
 
     pub fn read_deltas(&mut self) -> Vec<DataPoint> {
         let mut result_data: Vec<DataPoint> = vec![];
-        let start = SystemTime::now();
-        let since_the_epoch = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
-        let now = since_the_epoch.as_secs_f64();
-        let cut_off_buf_time = now - self.buffer_len_in_time;
 
         let mut waited_for_data = false;
         let mut status: u16 = self.bus.smbus_read_byte(STATUS_REG).expect("Cannot read status from i2c bus") as u16;
@@ -203,12 +188,10 @@ impl L3G4200D {
 
         while fifo_status & 0x1f != 0 {
             // TODO add check for imdefinite wait
-            let data_point = self.read_data(status, fifo_status, cut_off_buf_time);
+            let data_point = self.read_data(status, fifo_status);
             result_data.push(data_point);
             fifo_status = self.bus.smbus_read_byte(FIFO_SRC_REG).expect("Cannot read fifo_status from i2c bus");
         }
-
-        println!("Got status as {}", status);
 
         for data_point in &result_data {
             let x = (data_point.dx as f64 - self.cx) * self.sensitivity;
