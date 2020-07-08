@@ -18,6 +18,7 @@ mod telemetry_stream;
 mod telemetry_socket_server;
 
 mod pid;
+mod motors;
 mod balance;
 mod gyro;
 mod accel;

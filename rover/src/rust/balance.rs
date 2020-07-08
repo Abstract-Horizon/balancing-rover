@@ -22,13 +22,10 @@ use crate::telemetry_stream::Storable;
 use crate::telemetry_stream::TelemetryStreamDefinition;
 
 
+use crate::motors::Motors;
 use crate::gyro::L3G4200D;
 use crate::accel::ADXL345;
 use crate::pid::{PID, SIMPLE_DIFFERENCE};
-
-
-// use crate::telemetry_socket_server::log_with_time;
-
 
 
 fn create_logger() -> TelemetryStreamDefinition {
@@ -74,6 +71,7 @@ pub struct Balance {
     gyro: L3G4200D,
     accel: ADXL345,
     pid: PID,
+    motors: Motors,
     telemetry_server: SocketTelemetryServer,
     logger: TelemetryStreamDefinition,
     combine_factor_gyro: f64,
@@ -92,6 +90,13 @@ impl BalanceControl {
     }
 }
 
+// #[derive(Clone, Copy)]
+enum State {
+    Stopped,
+    WaitingForReady,
+    Balancing
+}
+
 impl Balance {
     pub fn new() -> Balance {
         let mut socket_server_builder = SocketTelemetryServerBuilder::new();
@@ -105,6 +110,7 @@ impl Balance {
             gyro: L3G4200D::new(0x69, freq, "50", 0.3),
             accel: ADXL345::new(0x53, freq, 0.5),
             pid: PID::new(0.75, 0.2, 0.05, 1.0, 0.0001, 1.0, 100.0, SIMPLE_DIFFERENCE),
+            motors: Motors::new(),
             telemetry_server,
             logger,
             combine_factor_gyro: 0.95,
@@ -127,6 +133,7 @@ impl Balance {
         let mut gyro = self.gyro;
         let mut accel = self.accel;
         let mut pid = self.pid;
+        let mut motors = self.motors;
         let mut cx: f64 = 0.0;
         let mut cy: f64 = 0.0;
         let mut cz: f64 = 0.0;
@@ -139,6 +146,9 @@ impl Balance {
         let since_the_epoch = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
         let mut last_time = since_the_epoch.as_secs_f64();
 
+        let max_deg = 45.0;
+
+        let mut state = State::WaitingForReady;
 
         loop {
             match receiver.try_recv() {
@@ -173,6 +183,26 @@ impl Balance {
 
                 pid_time += 1.0 / self.freq;
 
+                match state {
+                    State::Stopped => {
+                    },
+                    State::WaitingForReady => {
+                        if -4.0 < cy && cy < 4.0 {
+                            state = State::Balancing;
+                        }
+                    },
+                    State::Balancing => {
+                        if cy < -max_deg || cy > max_deg {
+                            state = State::WaitingForReady;
+                            motors.left_speed(0.0);
+                            motors.right_speed(0.0);
+                            println!("*** Got over {} def stopping!", max_deg);
+                        } else {
+                            motors.left_speed(control);
+                            motors.right_speed(control);
+                        }
+                    }
+                }
 
                 log_with_time!(
                     self.telemetry_server, self.logger,
