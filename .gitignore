@@ -129,4 +129,6 @@ dmypy.json
 .pyre/
 **/.idea
 
+**/.project
+**/.pydevproject
 logs
