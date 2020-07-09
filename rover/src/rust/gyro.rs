@@ -16,49 +16,47 @@ use phf::phf_map;
 use rppal::i2c::I2c;
 
 
-const CTRL_REG1: u8 = 0x20;
-const CTRL_REG2: u8 = 0x21;
-const CTRL_REG3: u8 = 0x22;
-const CTRL_REG4: u8 = 0x23;
-const CTRL_REG5: u8 = 0x24;
-//const REFERENCE: u8 = 0x25;
-//const OUT_TEMP: u8 = 0x26;
-const STATUS_REG: u8 = 0x27;
-const OUT_X_L: u8 = 0x28;
-//const OUT_X_H: u8 = 0x29;
-//const OUT_Y_L: u8 = 0x2A;
-//const OUT_Y_H: u8 = 0x2B;
-//const OUT_Z_L: u8 = 0x2C;
-//const OUT_Z_H: u8 = 0x2D;
-const FIFO_CTRL_REG: u8 = 0x2E;
-const FIFO_SRC_REG: u8 = 0x2F;
-//const INT1_CFG: u8 = 0x30;
-//const INT1_SRC: u8 = 0x31;
-//const INT1_TSH_XH: u8 = 0x32;
-//const INT1_TSH_XL: u8 = 0x33;
-//const INT1_TSH_YH: u8 = 0x34;
-//const INT1_TSH_YL: u8 = 0x35;
-//const INT1_TSH_ZH: u8 = 0x36;
-//const INT1_TSH_ZL: u8 = 0x37;
-//const INT1_DURATION: u8 = 0x38;
+const _CTRL_REG1: u8 = 0x20;
+const _CTRL_REG2: u8 = 0x21;
+const _CTRL_REG3: u8 = 0x22;
+const _CTRL_REG4: u8 = 0x23;
+const _CTRL_REG5: u8 = 0x24;
+const _REFERENCE: u8 = 0x25;
+const _OUT_TEMP: u8 = 0x26;
+const _STATUS_REG: u8 = 0x27;
+const _OUT_X_L: u8 = 0x28;
+const _OUT_X_H: u8 = 0x29;
+const _OUT_Y_L: u8 = 0x2A;
+const _OUT_Y_H: u8 = 0x2B;
+const _OUT_Z_L: u8 = 0x2C;
+const _OUT_Z_H: u8 = 0x2D;
+const _FIFO_CTRL_REG: u8 = 0x2E;
+const _FIFO_SRC_REG: u8 = 0x2F;
+const _INT1_CFG: u8 = 0x30;
+const _INT1_SRC: u8 = 0x31;
+const _INT1_TSH_XH: u8 = 0x32;
+const _INT1_TSH_XL: u8 = 0x33;
+const _INT1_TSH_YH: u8 = 0x34;
+const _INT1_TSH_YL: u8 = 0x35;
+const _INT1_TSH_ZH: u8 = 0x36;
+const _INT1_TSH_ZL: u8 = 0x37;
+const _INT1_DURATION: u8 = 0x38;
 
 
-/*
-const FREQ_BANDWIDTH_100_12_5: u8 = 0x00;
-const FREQ_BANDWIDTH_100_25: u8 = 0x10;
-const FREQ_BANDWIDTH_200_12_5: u8 = 0x40;
-const FREQ_BANDWIDTH_200_25: u8 = 0x50;
-const FREQ_BANDWIDTH_200_50: u8 = 0x60;
-const FREQ_BANDWIDTH_200_70: u8 = 0x70;
-const FREQ_BANDWIDTH_400_20: u8 = 0x80;
-const FREQ_BANDWIDTH_400_25: u8 = 0x90;
-const FREQ_BANDWIDTH_400_50: u8 = 0xA0;
-const FREQ_BANDWIDTH_400_110: u8 = 0xB0;
-const FREQ_BANDWIDTH_800_30: u8 = 0xC0;
-const FREQ_BANDWIDTH_800_35: u8 = 0xD0;
-const FREQ_BANDWIDTH_800_50: u8 = 0xE0;
-const FREQ_BANDWIDTH_800_111: u8 = 0xF0;
-*/
+const _FREQ_BANDWIDTH_100_12_5: u8 = 0x00;
+const _FREQ_BANDWIDTH_100_25: u8 = 0x10;
+const _FREQ_BANDWIDTH_200_12_5: u8 = 0x40;
+const _FREQ_BANDWIDTH_200_25: u8 = 0x50;
+const _FREQ_BANDWIDTH_200_50: u8 = 0x60;
+const _FREQ_BANDWIDTH_200_70: u8 = 0x70;
+const _FREQ_BANDWIDTH_400_20: u8 = 0x80;
+const _FREQ_BANDWIDTH_400_25: u8 = 0x90;
+const _FREQ_BANDWIDTH_400_50: u8 = 0xA0;
+const _FREQ_BANDWIDTH_400_110: u8 = 0xB0;
+const _FREQ_BANDWIDTH_800_30: u8 = 0xC0;
+const _FREQ_BANDWIDTH_800_35: u8 = 0xD0;
+const _FREQ_BANDWIDTH_800_50: u8 = 0xE0;
+const _FREQ_BANDWIDTH_800_111: u8 = 0xF0;
 
 // #[derive(Clone)]
 pub struct DataPoint {
@@ -144,20 +142,20 @@ impl L3G4200D {
         let selected_freq = ALLOWED_FREQ_BANDWIDTH_COMBINATIONS.get(&self.freq_u16).unwrap();
         let ctrl1 = 0xf + selected_freq.get("_").unwrap() + selected_freq.get(self.bandwidth).unwrap();
 
-        self.bus.smbus_write_byte(CTRL_REG1, ctrl1).expect("Cannot set REG1 on i2c");  // Output data rate 800Hz, freq cut-off 50 (Hz?), normal mode (not power down), all axes (x, y, z) enabled
-        self.bus.smbus_write_byte(CTRL_REG2, 0x0).expect("Cannot set REG2 on i2c");
-        self.bus.smbus_write_byte(CTRL_REG3, 0x0).expect("Cannot set REG3 on i2c");
-        // bus.smbus_write_byte(CTRL_REG4, 0x20);  // Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
-        // bus.smbus_write_byte(CTRL_REG4, 0x30);  // Not block (continuous update), LSB @ lower address, FSR 2000dps, self test disabled, i2c interface
-        self.bus.smbus_write_byte(CTRL_REG4, 0x80).expect("Cannot set REG4 on i2c");  // Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
-        self.bus.smbus_write_byte(CTRL_REG5, 0x40).expect("Cannot set REG5 on i2c");  // FIFO enabled
-        self.bus.smbus_write_byte(FIFO_CTRL_REG, 0x60).expect("Cannot set FIFO_CTRL_REG on i2c");  // FIFO Stream mode
+        self.bus.smbus_write_byte(_CTRL_REG1, ctrl1).expect("Cannot set REG1 on i2c");  // Output data rate 800Hz, freq cut-off 50 (Hz?), normal mode (not power down), all axes (x, y, z) enabled
+        self.bus.smbus_write_byte(_CTRL_REG2, 0x0).expect("Cannot set REG2 on i2c");
+        self.bus.smbus_write_byte(_CTRL_REG3, 0x0).expect("Cannot set REG3 on i2c");
+        // bus.smbus_write_byte(_CTRL_REG4, 0x20);  // Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
+        // bus.smbus_write_byte(_CTRL_REG4, 0x30);  // Not block (continuous update), LSB @ lower address, FSR 2000dps, self test disabled, i2c interface
+        self.bus.smbus_write_byte(_CTRL_REG4, 0x80).expect("Cannot set REG4 on i2c");  // Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
+        self.bus.smbus_write_byte(_CTRL_REG5, 0x40).expect("Cannot set REG5 on i2c");  // FIFO enabled
+        self.bus.smbus_write_byte(_FIFO_CTRL_REG, 0x60).expect("Cannot set _FIFO_CTRL_REG on i2c");  // FIFO Stream mode
 
         println!("Initialised L3G4200D i2c device.");
     }
 
     fn read_data(&self, status: u16, fifo_status: u8) -> DataPoint {
-        let command: [u8; 1] = [OUT_X_L + 0x80];
+        let command: [u8; 1] = [_OUT_X_L + 0x80];
         let mut buf = [0u8; 6];
         let _ = self.bus.write_read(&command, &mut buf).expect("Cannot read 6 bytes from i2c");
 
@@ -172,25 +170,25 @@ impl L3G4200D {
         let mut result_data: Vec<DataPoint> = vec![];
 
         let mut waited_for_data = false;
-        let mut status: u16 = self.bus.smbus_read_byte(STATUS_REG).expect("Cannot read status from i2c bus") as u16;
+        let mut status: u16 = self.bus.smbus_read_byte(_STATUS_REG).expect("Cannot read status from i2c bus") as u16;
 
         while status & 0xf != 0xf {
             // TODO add check for imdefinite wait
             waited_for_data = true;
-            status = self.bus.smbus_read_byte(STATUS_REG).expect("Cannot status byte from i2c bus") as u16;
+            status = self.bus.smbus_read_byte(_STATUS_REG).expect("Cannot status byte from i2c bus") as u16;
         }
 
         if waited_for_data {
             status += 256
         }
 
-        let mut fifo_status: u8 = self.bus.smbus_read_byte(FIFO_SRC_REG).expect("Cannot read fifo_status from i2c bus");
+        let mut fifo_status: u8 = self.bus.smbus_read_byte(_FIFO_SRC_REG).expect("Cannot read fifo_status from i2c bus");
 
         while fifo_status & 0x1f != 0 {
             // TODO add check for imdefinite wait
             let data_point = self.read_data(status, fifo_status);
             result_data.push(data_point);
-            fifo_status = self.bus.smbus_read_byte(FIFO_SRC_REG).expect("Cannot read fifo_status from i2c bus");
+            fifo_status = self.bus.smbus_read_byte(_FIFO_SRC_REG).expect("Cannot read fifo_status from i2c bus");
         }
 
         for data_point in &result_data {

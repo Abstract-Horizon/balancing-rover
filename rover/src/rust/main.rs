@@ -23,7 +23,7 @@ mod balance;
 mod gyro;
 mod accel;
 
-use balance::Balance;
+use balance::{Balance, ConfigData};
 
 
 use std::time::Duration;
@@ -32,7 +32,8 @@ use std::thread;
 
 
 fn main() {
-    let balance = Balance::new();
+    let config_data = ConfigData::new();
+    let balance = Balance::new(config_data);
 
     let balance_control = balance.start();
 

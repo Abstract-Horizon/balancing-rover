@@ -67,15 +67,43 @@ fn create_logger() -> TelemetryStreamDefinition {
 }
 
 
+#[derive(Clone, Copy)]
+pub struct ConfigData {
+    freq: u16,
+    combine_gyro_accel_factor: f64,
+    combine_gyro_factor: f64,
+    combine_accel_factor: f64,
+    pid_kp: f64, pid_ki: f64, pid_kd: f64, pid_gain: f64,
+    dead_band: f64, i_gain_scale: f64, d_gain_scale: f64,
+    max_degree: f64,
+    start_degree: f64,
+}
+
+impl ConfigData {
+    pub fn new() -> ConfigData {
+        ConfigData {
+            freq: 200,
+            combine_gyro_accel_factor: 0.95,
+            combine_gyro_factor: 0.3,
+            combine_accel_factor: 0.5,
+            pid_kp: 0.75,
+            pid_ki: 0.2,
+            pid_kd: 0.05,
+            pid_gain: 1.0,
+            dead_band: 0.0001,
+            i_gain_scale: 1.0,
+            d_gain_scale: 100.0,
+            max_degree: 45.0,
+            start_degree: 4.0,
+        }
+    }
+}
+
+
 pub struct Balance {
-    gyro: L3G4200D,
-    accel: ADXL345,
-    pid: PID,
-    motors: Motors,
     telemetry_server: SocketTelemetryServer,
     logger: TelemetryStreamDefinition,
-    combine_factor_gyro: f64,
-    freq: f64
+    config_data: ConfigData,
 }
 
 pub struct BalanceControl {
@@ -92,29 +120,23 @@ impl BalanceControl {
 
 // #[derive(Clone, Copy)]
 enum State {
+    #[allow(dead_code)]
     Stopped,
     WaitingForReady,
     Balancing
 }
 
 impl Balance {
-    pub fn new() -> Balance {
+    pub fn new(config_data: ConfigData) -> Balance {
         let mut socket_server_builder = SocketTelemetryServerBuilder::new();
         let logger = socket_server_builder.register_stream(create_logger());
 
         let telemetry_server = socket_server_builder.create(1860);
 
-        let freq: u16 = 200;
-
         Balance {
-            gyro: L3G4200D::new(0x69, freq, "50", 0.3),
-            accel: ADXL345::new(0x53, freq, 0.5),
-            pid: PID::new(0.75, 0.2, 0.05, 1.0, 0.0001, 1.0, 100.0, SIMPLE_DIFFERENCE),
-            motors: Motors::new(),
             telemetry_server,
             logger,
-            combine_factor_gyro: 0.95,
-            freq: 200.0
+            config_data: config_data.clone(),
         }
     }
 
@@ -130,23 +152,26 @@ impl Balance {
     }
 
     fn run_loop(self, receiver: mpsc::Receiver<bool>) {
-        let mut gyro = self.gyro;
-        let mut accel = self.accel;
-        let mut pid = self.pid;
-        let mut motors = self.motors;
+        let config_data = self.config_data;
+        let mut gyro = L3G4200D::new(0x69, config_data.freq, "50", config_data.combine_gyro_factor);
+        let mut accel = ADXL345::new(0x53, config_data.freq, config_data.combine_accel_factor);
+        let mut pid = PID::new(
+            config_data.pid_kp, config_data.pid_ki, config_data.pid_kd,
+            config_data.pid_gain, config_data.dead_band,
+            config_data.i_gain_scale, config_data.d_gain_scale, SIMPLE_DIFFERENCE);
+
+        let mut motors = Motors::new();
         let mut cx: f64 = 0.0;
         let mut cy: f64 = 0.0;
         let mut cz: f64 = 0.0;
         let mut pid_time: f64 = 0.0;
-        // let mut delta_time: f64 = 0.0;
-        // let mut control: f64 = 0.0;
         let bump: f64 = 0.0;
+
+        let freq_f64 = config_data.freq as f64;
 
         let start = SystemTime::now();
         let since_the_epoch = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
         let mut last_time = since_the_epoch.as_secs_f64();
-
-        let max_deg = 45.0;
 
         let mut state = State::WaitingForReady;
 
@@ -166,9 +191,11 @@ impl Balance {
 
             for gyro_data_point in gyro_data_points {
 
-                cx = (cx + gyro.px / gyro.freq) * self.combine_factor_gyro + accel_yav * (1.0 - self.combine_factor_gyro);
-                cy = (cy + gyro.py / gyro.freq) * self.combine_factor_gyro + accel_pitch * (1.0 - self.combine_factor_gyro);
-                cz = (cz + gyro.pz / gyro.freq) * self.combine_factor_gyro + accel_roll * (1.0 - self.combine_factor_gyro);
+                let combine_gyro_accel_factor = config_data.combine_gyro_accel_factor;
+                let invert_combine_gyro_accel_factor = 1.0 - combine_gyro_accel_factor;
+                cx = (cx + gyro.px / gyro.freq) * combine_gyro_accel_factor + accel_yav * invert_combine_gyro_accel_factor;
+                cy = (cy + gyro.py / gyro.freq) * combine_gyro_accel_factor + accel_pitch * invert_combine_gyro_accel_factor;
+                cz = (cz + gyro.pz / gyro.freq) * combine_gyro_accel_factor + accel_roll * invert_combine_gyro_accel_factor;
 
                 let start = SystemTime::now();
                 let since_the_epoch = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -181,25 +208,25 @@ impl Balance {
 
                 let control = output;
 
-                pid_time += 1.0 / self.freq;
+                pid_time += 1.0 / freq_f64;
 
                 match state {
                     State::Stopped => {
                     },
                     State::WaitingForReady => {
-                        if -4.0 < cy && cy < 4.0 {
+                        if -config_data.start_degree < cy && cy < config_data.start_degree {
                             state = State::Balancing;
                         }
                     },
                     State::Balancing => {
-                        if cy < -max_deg || cy > max_deg {
+                        if cy < -config_data.max_degree || cy > config_data.max_degree {
                             state = State::WaitingForReady;
                             motors.left_speed(0.0);
                             motors.right_speed(0.0);
-                            println!("*** Got over {} def stopping!", max_deg);
+                            println!("*** Got over {} def stopping!", config_data.max_degree);
                         } else {
-                            motors.left_speed(control);
-                            motors.right_speed(control);
+                            motors.left_speed(control as f32);
+                            motors.right_speed(control as f32);
                         }
                     }
                 }

@@ -94,9 +94,10 @@ impl SocketTelemetryServer {
                     for connection in con_rx.try_iter() {
                         // println!("   and received new connection, sending streams back {}", streams[0].to_json());
                         let mut con = &connection;
-                        let _ = con.write(b"STRS");
-                        let mut buf = [0u8; 4];
-                        LittleEndian::write_u32(&mut buf, streams.len() as u32);
+                        // let _ = con.write(b"STRS");
+                        let mut buf = [0u8; 8];
+                        // buf[0..4] = *"STRS".as_bytes();
+                        LittleEndian::write_u32(&mut buf[4..], streams.len() as u32);
                         let _ = con.write(&buf);
 
                         for stream_definition in streams.iter(){

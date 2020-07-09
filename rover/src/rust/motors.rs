@@ -11,24 +11,38 @@
 
 use rppal::gpio::{Gpio, OutputPin};
 
+#[cfg(target_arch = "aarch64")]
+use dma_gpio_aarch64::pi::{BoardBuilder, Board};
 
 
-fn sanitise_speed(speed: f64) -> (f64, i32) {
+#[cfg(target_arch = "arm")]
+use dma_gpio_armhf::pi::{BoardBuilder, Board};
+
+
+const LEFT_PWM_PIN_NO: u8 = 20;
+const LEFT_IN1_PIN_NO: u8 = 6;
+const LEFT_IN2_PIN_NO: u8 = 5;
+const RIGHT_PWM_PIN_NO: u8 = 26;
+const RIGHT_IN1_PIN_NO: u8 = 19;
+const RIGHT_IN2_PIN_NO: u8 = 13;
+
+
+
+fn sanitise_speed(speed: f32) -> (f32, i32) {
     let mut speed = speed;
 
     if speed > 0.0001 {
-        speed *= 100.0;
-        if speed > 100.0 {
-            speed = 100.0;
-        } else if speed < 1.0 {
+        if speed > 1.0 {
+            speed = 1.0;
+        } else if speed < 0.01 {
             speed = 0.0;
         }
         (speed, 1)
     } else if speed < -0.00001 {
-        speed *= -100.0;
-        if speed > 100.0 {
-            speed = 100.0;
-        } else if speed < 1.0 {
+        speed *= -1.0;
+        if speed > 1.0 {
+            speed = 1.0;
+        } else if speed < 0.01 {
             speed = 0.0;
         }
         (speed, -1)
@@ -39,65 +53,57 @@ fn sanitise_speed(speed: f64) -> (f64, i32) {
 
 
 pub struct Motors {
-    left_pwm_pin: OutputPin,
     left_in1_pin: OutputPin,
     left_in2_pin: OutputPin,
     left_last_direction: i32,
-    right_pwm_pin: OutputPin,
     right_in1_pin: OutputPin,
     right_in2_pin: OutputPin,
     right_last_direction: i32,
+    board: Board
 }
 
 impl Motors {
     pub fn new() -> Motors {
-        let left_pwm_pin_no = 20;
-        let left_in1_pin_no = 6;
-        let left_in2_pin_no = 5;
-        let right_pwm_pin_no = 26;
-        let right_in1_pin_no = 13;
-        let right_in2_pin_no = 19;
-        let pwm_freq = 8000;
 
         let mut motors = Motors {
-            left_pwm_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get left PWM pin {}", left_pwm_pin_no))
-                .get(left_pwm_pin_no).unwrap_or_else(|_| panic!("Cannot get left PWM pin {}", left_pwm_pin_no))
+            left_in1_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get left in1 pin {}", LEFT_IN1_PIN_NO))
+                .get(LEFT_IN1_PIN_NO).unwrap_or_else(|_| panic!("Cannot get left in2 pin {}", LEFT_IN1_PIN_NO))
                 .into_output(),
-            left_in1_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get left in1 pin {}", left_in1_pin_no))
-                .get(left_in1_pin_no).unwrap_or_else(|_| panic!("Cannot get left in2 pin {}", left_in1_pin_no))
-                .into_output(),
-            left_in2_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get left in2 pin {}", left_in2_pin_no))
-                .get(left_in2_pin_no).unwrap_or_else(|_| panic!("Cannot get left in2 pin {}", left_in2_pin_no))
+            left_in2_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get left in2 pin {}", LEFT_IN2_PIN_NO))
+                .get(LEFT_IN2_PIN_NO).unwrap_or_else(|_| panic!("Cannot get left in2 pin {}", LEFT_IN2_PIN_NO))
                 .into_output(),
             left_last_direction: 0,
-            right_pwm_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get right PWM pin {}", right_pwm_pin_no))
-                .get(right_pwm_pin_no).unwrap_or_else(|_| panic!("Cannot get right PWM pin {}", right_pwm_pin_no))
+            right_in1_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get right in1 pin {}", RIGHT_IN1_PIN_NO))
+                .get(RIGHT_IN1_PIN_NO).unwrap_or_else(|_| panic!("Cannot get right in1 pin {}", RIGHT_IN1_PIN_NO))
                 .into_output(),
-            right_in1_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get right in1 pin {}", right_in1_pin_no))
-                .get(right_in1_pin_no).unwrap_or_else(|_| panic!("Cannot get right in1 pin {}", right_in1_pin_no))
-                .into_output(),
-            right_in2_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get right in2 pin {}", right_in2_pin_no))
-                .get(right_in2_pin_no).unwrap_or_else(|_| panic!("Cannot get right in2 pin {}", right_in2_pin_no))
+            right_in2_pin: Gpio::new().unwrap_or_else(|_| panic!("Cannot get right in2 pin {}", RIGHT_IN2_PIN_NO))
+                .get(RIGHT_IN2_PIN_NO).unwrap_or_else(|_| panic!("Cannot get right in2 pin {}", RIGHT_IN2_PIN_NO))
                 .into_output(),
             right_last_direction: 0,
+            board: BoardBuilder::new()
+                .divide_pwm(1250)
+                .set_cycle_time(200)
+                .set_sample_delay(2)
+                .build_with_pins(vec![LEFT_PWM_PIN_NO, RIGHT_PWM_PIN_NO]).unwrap_or_else(|_| panic!("Cannot get setup PWM for pins {} and {}", LEFT_PWM_PIN_NO, RIGHT_PWM_PIN_NO))
         };
-        
+
         motors.stop_all();
-        
+
         motors
     }
     
     pub fn stop_all(&mut self) {
-        self.left_pwm_pin.set_high();
+        // self.left_pwm_pin.set_high();
         self.left_in1_pin.set_high();
         self.left_in2_pin.set_high();
-        self.right_pwm_pin.set_high();
+        // self.right_pwm_pin.set_high();
         self.right_in1_pin.set_high();
         self.right_in2_pin.set_high();
+        self.board.set_all_pwm(0.0).unwrap();
     }
 
 
-    pub fn left_speed(&mut self, speed: f64) {
+    pub fn left_speed(&mut self, speed: f32) {
         let (speed, direction) = sanitise_speed(speed);
 
         if self.left_last_direction != direction {
@@ -113,13 +119,11 @@ impl Motors {
                 self.left_in2_pin.set_high();
             }
         }
-//        try:
-//            gpios.set_PWM_dutycycle(self.left_pwm_pin, speed)
-//        except Exception as ex:
-//            print(f"Tried left speed of {speed} and failed. {ex}")
+
+        self.board.set_pwm(LEFT_PWM_PIN_NO, speed).unwrap_or_else(|_| panic!("Cannot get set PWM for pin {}", LEFT_PWM_PIN_NO));
     }
 
-    pub fn right_speed(&mut self, speed: f64) {
+    pub fn right_speed(&mut self, speed: f32) {
         let (speed, direction) = sanitise_speed(speed);
 
         if self.right_last_direction != direction {
@@ -135,5 +139,7 @@ impl Motors {
                 self.right_in2_pin.set_high();
             }
         }
+
+        self.board.set_pwm(RIGHT_PWM_PIN_NO, speed).unwrap_or_else(|_| panic!("Cannot get set PWM for pin {}", LEFT_PWM_PIN_NO));
     }
 }
