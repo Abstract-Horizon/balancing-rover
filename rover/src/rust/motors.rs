@@ -11,12 +11,14 @@
 
 use rppal::gpio::{Gpio, OutputPin};
 
-#[cfg(target_arch = "aarch64")]
-use dma_gpio_aarch64::pi::{BoardBuilder, Board};
+use dma_gpio::pi::{BoardBuilder, Board};
 
-
-#[cfg(target_arch = "arm")]
-use dma_gpio_armhf::pi::{BoardBuilder, Board};
+//#[cfg(target_arch = "aarch64")]
+//use dma_gpio_aarch64::pi::{BoardBuilder, Board};
+//
+//
+//#[cfg(target_arch = "arm")]
+//use dma_gpio_armhf::pi::{BoardBuilder, Board};
 
 
 const LEFT_PWM_PIN_NO: u8 = 20;

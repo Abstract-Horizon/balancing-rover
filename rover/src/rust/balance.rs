@@ -69,14 +69,19 @@ fn create_logger() -> TelemetryStreamDefinition {
 
 #[derive(Clone, Copy)]
 pub struct ConfigData {
-    freq: u16,
-    combine_gyro_accel_factor: f64,
-    combine_gyro_factor: f64,
-    combine_accel_factor: f64,
-    pid_kp: f64, pid_ki: f64, pid_kd: f64, pid_gain: f64,
-    dead_band: f64, i_gain_scale: f64, d_gain_scale: f64,
-    max_degree: f64,
-    start_degree: f64,
+    pub freq: u16,
+    pub combine_gyro_accel_factor: f64,
+    pub combine_gyro_factor: f64,
+    pub combine_accel_factor: f64,
+    pub pid_kp: f64,
+    pub pid_ki: f64,
+    pub pid_kd: f64,
+    pub pid_gain: f64,
+    pub dead_band: f64,
+    pub i_gain_scale: f64,
+    pub d_gain_scale: f64,
+    pub max_degree: f64,
+    pub start_degree: f64,
 }
 
 impl ConfigData {
@@ -107,13 +112,19 @@ pub struct Balance {
 }
 
 pub struct BalanceControl {
-    balance_sender: mpsc::Sender<bool>,
+    pub config_data: ConfigData,
+    balance_stop_sender: mpsc::Sender<bool>,
+    balance_config_sender: mpsc::Sender<ConfigData>,
     balance_thread: thread::JoinHandle<()>
 }
 
 impl BalanceControl {
+    pub fn send_config(&self) {
+        let _ = self.balance_config_sender.send(self.config_data);
+    }
+
     pub fn stop(self) {
-        let _ = self.balance_sender.send(true);
+        let _ = self.balance_stop_sender.send(true);
         let _ = self.balance_thread.join();
     }
 }
@@ -127,7 +138,7 @@ enum State {
 }
 
 impl Balance {
-    pub fn new(config_data: ConfigData) -> Balance {
+    pub fn new() -> Balance {
         let mut socket_server_builder = SocketTelemetryServerBuilder::new();
         let logger = socket_server_builder.register_stream(create_logger());
 
@@ -136,22 +147,25 @@ impl Balance {
         Balance {
             telemetry_server,
             logger,
-            config_data: config_data.clone(),
+            config_data: ConfigData::new(),
         }
     }
 
     pub fn start(self) -> BalanceControl {
-        let (sender, receiver) = mpsc::channel();
+        let (stop_sender, stop_receiver) = mpsc::channel();
+        let (config_sender, config_receiver) = mpsc::channel();
 
         BalanceControl {
-            balance_sender: sender,
+            config_data: self.config_data,
+            balance_stop_sender: stop_sender,
+            balance_config_sender: config_sender,
             balance_thread: thread::spawn(move || {
-                self.run_loop(receiver);
+                self.run_loop(stop_receiver, config_receiver);
             })
         }
     }
 
-    fn run_loop(self, receiver: mpsc::Receiver<bool>) {
+    fn run_loop(self, stop_receiver: mpsc::Receiver<bool>, config_receiver: mpsc::Receiver<ConfigData>) {
         let config_data = self.config_data;
         let mut gyro = L3G4200D::new(0x69, config_data.freq, "50", config_data.combine_gyro_factor);
         let mut accel = ADXL345::new(0x53, config_data.freq, config_data.combine_accel_factor);
@@ -175,11 +189,21 @@ impl Balance {
 
         let mut state = State::WaitingForReady;
 
+        fn process_config(_new_config: ConfigData) {
+            
+        }
+
         loop {
-            match receiver.try_recv() {
+            match stop_receiver.try_recv() {
                 Ok(_) => break,
                 _ => {}
             };
+            
+            match config_receiver.try_recv() {
+                Ok(new_config) => process_config(new_config),
+                _ => {}
+            }
+            
             let gyro_data_points = gyro.read_deltas();
             let gyro_data_point_len = gyro_data_points.len();
 
