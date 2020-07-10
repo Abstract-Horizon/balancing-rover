@@ -9,12 +9,9 @@
 //    Daniel Sendula - initial API and implementation
 //
 
-// #![feature(macro_rules)]
-
 
 mod telemetry_stream;
 
-// #[macro_use]
 mod telemetry_socket_server;
 
 mod pid;
@@ -25,7 +22,6 @@ mod accel;
 
 use balance::{Balance, BalanceControl};
 
-//use std::sync::mpsc;
 use std::collections::HashMap;
 //use std::time::Duration;
 //use std::thread;

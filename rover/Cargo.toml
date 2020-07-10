@@ -23,11 +23,4 @@ rumqtt = "0.31.0"
 mqtt311 = "0.2"
 crossbeam-channel = "^0.3"
 
-
 dma_gpio = { path = "dma_gpio" }
-
-# [target.'cfg(target_arch = "aarch64")'.dependencies]
-# dma_gpio_aarch64 = { path = "dma_gpio/aarch64", package="dma_gpio" }
-#
-# [target.'cfg(target_arch = "arm")'.dependencies]
-# dma_gpio_armhf = { path = "dma_gpio/armhf", package="dma_gpio" }
