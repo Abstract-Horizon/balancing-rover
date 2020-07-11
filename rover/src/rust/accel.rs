@@ -79,7 +79,7 @@ pub struct ADXL345 {
     pub x_offset: f64,
     pub y_offset: f64,
     pub z_offset: f64,
-    filter: f64,
+    pub combine_filter: f64,
 }
 
 impl ADXL345 {
@@ -91,7 +91,7 @@ impl ADXL345 {
         let adxl345 = ADXL345 {
             bus,
             x: 0.0, y: 0.0, z: 0.0, x_offset: 0.0, y_offset: 0.0, z_offset: 0.0,
-            filter: combine_filter,
+            combine_filter,
         };
 
         match ALLOWED_FREQUENCIES.get(&freq) {
@@ -134,9 +134,10 @@ impl ADXL345 {
         let raw_y = LittleEndian::read_i16(&buf[2..4]);
         let raw_z = LittleEndian::read_i16(&buf[4..6]);
 
-        self.x = (raw_x as f64 * SCALE_MULTIPLIER - self.x_offset) * self.filter + self.x  * (1.0 - self.filter);
-        self.y = (raw_y as f64 * SCALE_MULTIPLIER - self.y_offset) * self.filter + self.y  * (1.0 - self.filter);
-        self.z = (raw_z as f64 * SCALE_MULTIPLIER - self.z_offset) * self.filter + self.z  * (1.0 - self.filter);
+        let invert_combine_filter = 1.0 - self.combine_filter;
+        self.x = (raw_x as f64 * SCALE_MULTIPLIER - self.x_offset) * self.combine_filter + self.x  * invert_combine_filter;
+        self.y = (raw_y as f64 * SCALE_MULTIPLIER - self.y_offset) * self.combine_filter + self.y  * invert_combine_filter;
+        self.z = (raw_z as f64 * SCALE_MULTIPLIER - self.z_offset) * self.combine_filter + self.z  * invert_combine_filter;
 
         DataPoint::new(raw_x, raw_y, raw_z, self.x, self.y, self.z)
     }

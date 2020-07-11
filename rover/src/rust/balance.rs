@@ -109,29 +109,51 @@ pub struct Balance {
     telemetry_server: SocketTelemetryServer,
     logger: TelemetryStreamDefinition,
     config_data: ConfigData,
+    gyro: L3G4200D,
+    accel: ADXL345,
+    pid: PID,
 }
+
+enum Command {
+    Calibrate,
+    StartBalancing,
+    StopBalancing,
+    Leave,
+    NewConfig(ConfigData)
+}
+
 
 pub struct BalanceControl {
     pub config_data: ConfigData,
-    balance_stop_sender: mpsc::Sender<bool>,
-    balance_config_sender: mpsc::Sender<ConfigData>,
+    balance_command_sender: mpsc::Sender<Command>,
     balance_thread: thread::JoinHandle<()>
 }
 
 impl BalanceControl {
     pub fn send_config(&self) {
-        let _ = self.balance_config_sender.send(self.config_data);
+        let _ = self.balance_command_sender.send(Command::NewConfig(self.config_data));
+    }
+
+    pub fn calibrate(&self) {
+        let _ = self.balance_command_sender.send(Command::Calibrate);
+    }
+
+    pub fn start_balancing(&self) {
+        let _ = self.balance_command_sender.send(Command::StartBalancing);
+    }
+
+    pub fn stop_balancing(&self) {
+        let _ = self.balance_command_sender.send(Command::StopBalancing);
     }
 
     pub fn stop(self) {
-        let _ = self.balance_stop_sender.send(true);
+        let _ = self.balance_command_sender.send(Command::Leave);
         let _ = self.balance_thread.join();
     }
 }
 
-// #[derive(Clone, Copy)]
+
 enum State {
-    #[allow(dead_code)]
     Stopped,
     WaitingForReady,
     Balancing
@@ -144,37 +166,75 @@ impl Balance {
 
         let telemetry_server = socket_server_builder.create(1860);
 
+        let config_data = ConfigData::new();
+
         Balance {
             telemetry_server,
             logger,
-            config_data: ConfigData::new(),
+            gyro: L3G4200D::new(0x69, config_data.freq, "50", config_data.combine_gyro_factor),
+            accel: ADXL345::new(0x53, config_data.freq, config_data.combine_accel_factor),
+            pid: PID::new(
+                config_data.pid_kp, config_data.pid_ki, config_data.pid_kd,
+                config_data.pid_gain, config_data.dead_band,
+                config_data.i_gain_scale, config_data.d_gain_scale, SIMPLE_DIFFERENCE),
+            config_data,
         }
     }
 
     pub fn start(self) -> BalanceControl {
-        let (stop_sender, stop_receiver) = mpsc::channel();
-        let (config_sender, config_receiver) = mpsc::channel();
+        let (command_sender, command_receiver) = mpsc::channel();
 
         BalanceControl {
             config_data: self.config_data,
-            balance_stop_sender: stop_sender,
-            balance_config_sender: config_sender,
+            balance_command_sender: command_sender,
             balance_thread: thread::spawn(move || {
-                self.run_loop(stop_receiver, config_receiver);
+                self.run_loop(command_receiver);
             })
         }
     }
 
-    fn run_loop(self, stop_receiver: mpsc::Receiver<bool>, config_receiver: mpsc::Receiver<ConfigData>) {
-        let config_data = self.config_data;
-        let mut gyro = L3G4200D::new(0x69, config_data.freq, "50", config_data.combine_gyro_factor);
-        let mut accel = ADXL345::new(0x53, config_data.freq, config_data.combine_accel_factor);
-        let mut pid = PID::new(
-            config_data.pid_kp, config_data.pid_ki, config_data.pid_kd,
-            config_data.pid_gain, config_data.dead_band,
-            config_data.i_gain_scale, config_data.d_gain_scale, SIMPLE_DIFFERENCE);
+    fn process_config(&mut self, new_config: ConfigData) {
+        println!("Got new config");
+        if new_config.combine_gyro_accel_factor != self.config_data.combine_gyro_accel_factor {
+            println!("Got new combine_gyro_accel_factor {}, old {}", new_config.combine_gyro_accel_factor, self.config_data.combine_gyro_accel_factor);
+            self.config_data.combine_gyro_accel_factor = new_config.combine_gyro_accel_factor;
+        }
+        if new_config.combine_gyro_factor != self.config_data.combine_gyro_factor {
+            println!("Got new combine_gyro_factor {}, old {}", new_config.combine_gyro_factor, self.config_data.combine_gyro_factor);
+            self.config_data.combine_gyro_factor = new_config.combine_gyro_factor;
+            self.gyro.combine_filter = new_config.combine_gyro_factor
+        }
+        if new_config.combine_accel_factor != self.config_data.combine_accel_factor {
+            println!("Got new combine_accel_factor {}, old {}", new_config.combine_accel_factor, self.config_data.combine_accel_factor);
+            self.config_data.combine_accel_factor = new_config.combine_accel_factor;
+            self.accel.combine_filter = new_config.combine_accel_factor
+        }
+        if new_config.pid_kp != self.config_data.pid_kp {
+            println!("Got new pid_kp {}, old {}", new_config.pid_kp, self.config_data.pid_kp);
+            self.config_data.pid_kp = new_config.pid_kp;
+            self.pid.kp = new_config.pid_kp
+        }
+        if new_config.pid_ki != self.config_data.pid_ki {
+            println!("Got new pid_ki {}, old {}", new_config.pid_ki, self.config_data.pid_ki);
+            self.config_data.pid_ki = new_config.pid_ki;
+            self.pid.ki = new_config.pid_ki
+        }
+        if new_config.pid_kd != self.config_data.pid_kd {
+            println!("Got new pid_kd {}, old {}", new_config.pid_kd, self.config_data.pid_kd);
+            self.config_data.pid_kd = new_config.pid_kd;
+            self.pid.kd = new_config.pid_kd
+        }
+        if new_config.pid_gain != self.config_data.pid_gain {
+            println!("Got new pid_gain {}, old {}", new_config.pid_gain, self.config_data.pid_gain);
+            self.config_data.pid_gain = new_config.pid_gain;
+            self.pid.kg = new_config.pid_gain
+        }
+    }
 
+    fn run_loop(mut self, command_receiver: mpsc::Receiver<Command>) {
+        let config_data = self.config_data;
         let mut motors = Motors::new();
+
         let mut cx: f64 = 0.0;
         let mut cy: f64 = 0.0;
         let mut cz: f64 = 0.0;
@@ -189,25 +249,22 @@ impl Balance {
 
         let mut state = State::WaitingForReady;
 
-        fn process_config(_new_config: ConfigData) {
-            
-        }
-
         loop {
-            match stop_receiver.try_recv() {
-                Ok(_) => break,
+            match command_receiver.try_recv() {
+                Ok(msg) => match msg {
+                    Command::StartBalancing => state = State::WaitingForReady,
+                    Command::StopBalancing => state = State::Stopped,
+                    Command::Leave => break,
+                    Command::NewConfig(new_config) => self.process_config(new_config),
+                    Command::Calibrate => {}
+                },
                 _ => {}
             };
-            
-            match config_receiver.try_recv() {
-                Ok(new_config) => process_config(new_config),
-                _ => {}
-            }
-            
-            let gyro_data_points = gyro.read_deltas();
+
+            let gyro_data_points = self.gyro.read_deltas();
             let gyro_data_point_len = gyro_data_points.len();
 
-            let accel_data_point = accel.read();
+            let accel_data_point = self.accel.read();
 
             let accel_pitch = (accel_data_point.z.atan2((accel_data_point.x * accel_data_point.x + accel_data_point.y * accel_data_point.y).sqrt()) * 180.0) / PI;
             let accel_roll = (accel_data_point.x.atan2((accel_data_point.z * accel_data_point.z + accel_data_point.y * accel_data_point.y).sqrt()) * 180.0) / PI;
@@ -217,9 +274,9 @@ impl Balance {
 
                 let combine_gyro_accel_factor = config_data.combine_gyro_accel_factor;
                 let invert_combine_gyro_accel_factor = 1.0 - combine_gyro_accel_factor;
-                cx = (cx + gyro.px / gyro.freq) * combine_gyro_accel_factor + accel_yav * invert_combine_gyro_accel_factor;
-                cy = (cy + gyro.py / gyro.freq) * combine_gyro_accel_factor + accel_pitch * invert_combine_gyro_accel_factor;
-                cz = (cz + gyro.pz / gyro.freq) * combine_gyro_accel_factor + accel_roll * invert_combine_gyro_accel_factor;
+                cx = (cx + self.gyro.px / self.gyro.freq) * combine_gyro_accel_factor + accel_yav * invert_combine_gyro_accel_factor;
+                cy = (cy + self.gyro.py / self.gyro.freq) * combine_gyro_accel_factor + accel_pitch * invert_combine_gyro_accel_factor;
+                cz = (cz + self.gyro.pz / self.gyro.freq) * combine_gyro_accel_factor + accel_roll * invert_combine_gyro_accel_factor;
 
                 let start = SystemTime::now();
                 let since_the_epoch = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
@@ -228,7 +285,7 @@ impl Balance {
                 let delta_time = now - last_time;
                 last_time = now;
 
-                let output = pid.process(pid_time, 0.0, (cy * PI / 90.0).sin() * 2.0);
+                let output = self.pid.process(pid_time, 0.0, (cy * PI / 90.0).sin() * 2.0);
 
                 let control = output;
 
@@ -245,8 +302,7 @@ impl Balance {
                     State::Balancing => {
                         if cy < -config_data.max_degree || cy > config_data.max_degree {
                             state = State::WaitingForReady;
-                            motors.left_speed(0.0);
-                            motors.right_speed(0.0);
+                            motors.stop_all();
                             println!("*** Got over {} def stopping!", config_data.max_degree);
                         } else {
                             motors.left_speed(control as f32);
@@ -258,14 +314,14 @@ impl Balance {
                 log_with_time!(
                     self.telemetry_server, self.logger,
                     gyro_data_point.dx, gyro_data_point.dy, gyro_data_point.dz,
-                    gyro.px, gyro.py, gyro.pz,
+                    self.gyro.px, self.gyro.py, self.gyro.pz,
                     gyro_data_point.status, gyro_data_point.fifo_status, gyro_data_point_len as u8,
                     accel_data_point.raw_x, accel_data_point.raw_y, accel_data_point.raw_z,
                     accel_data_point.x, accel_data_point.y, accel_data_point.z,
                     accel_pitch, accel_roll, accel_yav,
                     cx, cy, cz,
-                    pid.p, pid.i, pid.d,
-                    pid.p * pid.kp, pid.i * pid.ki, pid.d *pid.kd,
+                    self.pid.p, self.pid.i, self.pid.d,
+                    self.pid.p * self.pid.kp, self.pid.i * self.pid.ki, self.pid.d * self.pid.kd,
                     delta_time, output, control, bump);
             }
         }

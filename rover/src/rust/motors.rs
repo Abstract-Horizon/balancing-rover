@@ -85,15 +85,16 @@ impl Motors {
 
         motors
     }
-    
+
     pub fn stop_all(&mut self) {
-        // self.left_pwm_pin.set_high();
-        self.left_in1_pin.set_high();
-        self.left_in2_pin.set_high();
-        // self.right_pwm_pin.set_high();
-        self.right_in1_pin.set_high();
-        self.right_in2_pin.set_high();
-        self.board.set_all_pwm(0.0).unwrap();
+        self.left_speed(0.0);
+        self.right_speed(0.0);
+
+//        self.left_in1_pin.set_high();
+//        self.left_in2_pin.set_high();
+//        self.right_in1_pin.set_high();
+//        self.right_in2_pin.set_high();
+//        self.board.set_all_pwm(0.0).unwrap();
     }
 
 

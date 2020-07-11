@@ -20,7 +20,7 @@ mod balance;
 mod gyro;
 mod accel;
 
-use balance::{Balance, BalanceControl};
+use balance::{Balance, BalanceControl, ConfigData};
 
 use std::collections::HashMap;
 //use std::time::Duration;
@@ -54,6 +54,12 @@ impl MQTTClient {
         self.subscriptions.insert(topic, callback);
     }
 
+    fn subscribe_storage(&mut self, topic: &'static str, callback: fn(msg: mqtt311::Publish, mqtt_client: &mut MQTTClient) -> ()) {
+        self.mqtt_client.subscribe(&("storage/write/".to_string() + topic), QoS::AtMostOnce).unwrap();
+        let _ = self.mqtt_client.publish(&("storage/read/".to_string() + topic), QoS::AtLeastOnce, false, "");
+        self.subscriptions.insert(Box::leak(("storage/write/".to_string() + topic).into_boxed_str()), callback);
+    }
+
     fn process(&mut self, notification: Notification) {
         match notification {
             Notification::Publish(msg) => {
@@ -71,9 +77,23 @@ impl MQTTClient {
             _ => { }
         }
     }
-    
+
     fn stop(self) {
         self.balance_control.stop();
+    }
+}
+
+fn float_payload(msg: mqtt311::Publish, mqtt_client: &mut MQTTClient, update: fn(&mut ConfigData, f: f64) -> ()) {
+    match String::from_utf8(msg.payload.to_vec()) {
+        Ok(s) => match s.parse() {
+            Ok(f) => {
+                // println!("Got combine_gyro_factor {}", f);
+                update(&mut mqtt_client.balance_control.config_data, f);
+                mqtt_client.balance_control.send_config();
+            },
+            _ => println!("Failed to parse {} for  {}", s, msg.topic_name)
+        },
+        _ => println!("Failed to convert to utf8 {:?} for  {}", msg.payload, msg.topic_name)
     }
 }
 
@@ -88,11 +108,42 @@ fn main() {
 
             let mut mqtt_client = MQTTClient::new(mqtt_client, balance_control);
 
-            mqtt_client.subscribe("hello", |msg, mqtt_client| {
-                println!("Received on {} msg {}", msg.topic_name, std::str::from_utf8(&msg.payload).unwrap());
-                mqtt_client.balance_control.config_data.pid_kp = 0.72;
-                mqtt_client.balance_control.send_config();
+            mqtt_client.subscribe_storage("balance/gyro/filter", |msg, mqtt_client| 
+                float_payload(msg, mqtt_client, |config_data, f| config_data.combine_gyro_factor = f)
+            );
+            mqtt_client.subscribe_storage("balance/accel/filter", |msg, mqtt_client|
+                float_payload(msg, mqtt_client, |config_data, f| config_data.combine_accel_factor = f)
+            );
+            mqtt_client.subscribe_storage("balance/combine_factor_gyro", |msg, mqtt_client|
+                float_payload(msg, mqtt_client, |config_data, f| config_data.combine_gyro_accel_factor = f)
+            );
+            mqtt_client.subscribe_storage("balance/pid_inner/p", |msg, mqtt_client|
+                float_payload(msg, mqtt_client, |config_data, f| config_data.pid_kp = f)
+            );
+            mqtt_client.subscribe_storage("balance/pid_inner/i", |msg, mqtt_client|
+                float_payload(msg, mqtt_client, |config_data, f| config_data.pid_ki = f)
+            );
+            mqtt_client.subscribe_storage("balance/pid_inner/d", |msg, mqtt_client|
+                float_payload(msg, mqtt_client, |config_data, f| config_data.pid_kd = f)
+            );
+            mqtt_client.subscribe_storage("balance/pid_inner/g", |msg, mqtt_client|
+                float_payload(msg, mqtt_client, |config_data, f| config_data.pid_gain = f)
+            );
+            mqtt_client.subscribe("storage/write/balance/pid_outer/p", |_msg, _mqtt_client| {});
+            mqtt_client.subscribe("storage/write/balance/pid_outer/i", |_msg, _mqtt_client| {});
+            mqtt_client.subscribe("storage/write/balance/pid_outer/d", |_msg, _mqtt_client| {});
+            mqtt_client.subscribe("storage/write/balance/pid_outer/g", |_msg, _mqtt_client| {});
+
+            mqtt_client.subscribe("balancing/calibrate", |_, mqtt_client| {
+                mqtt_client.balance_control.calibrate();
             });
+            mqtt_client.subscribe("balancing/start", |_, mqtt_client| {
+                mqtt_client.balance_control.start_balancing();
+            });
+            mqtt_client.subscribe("balancing/stop", |_, mqtt_client| {
+                mqtt_client.balance_control.stop_balancing();
+            });
+            // mqtt_client.subscribe("balancing/request-info", |_, mqtt_client| {});
 
             let (stop_sender, stop_receiver) = crossbeam_channel::bounded(1);
 

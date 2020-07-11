@@ -196,9 +196,10 @@ impl L3G4200D {
             let y = (data_point.dy as f64 - self.cy) * self.sensitivity;
             let z = (data_point.dz as f64 - self.cz) * self.sensitivity;
 
-            self.px = x * self.combine_filter + (1.0 - self.combine_filter) * self.px;
-            self.py = y * self.combine_filter + (1.0 - self.combine_filter) * self.py;
-            self.pz = z * self.combine_filter + (1.0 - self.combine_filter) * self.pz;
+            let invert_combine_filter = 1.0 - self.combine_filter;
+            self.px = x * self.combine_filter + invert_combine_filter * self.px;
+            self.py = y * self.combine_filter + invert_combine_filter * self.py;
+            self.pz = z * self.combine_filter + invert_combine_filter * self.pz;
         }
 
         result_data

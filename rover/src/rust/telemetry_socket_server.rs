@@ -96,15 +96,18 @@ impl SocketTelemetryServer {
                         let mut con = &connection;
                         // let _ = con.write(b"STRS");
                         let mut buf = [0u8; 8];
-                        // buf[0..4] = *"STRS".as_bytes();
+                        buf[0..4].clone_from_slice("STRS".as_bytes());
                         LittleEndian::write_u32(&mut buf[4..], streams.len() as u32);
                         let _ = con.write(&buf);
+                        // println!("Sent out {:?}", buf);
 
                         for stream_definition in streams.iter(){
-                            let _ = con.write(b"STDF");
-                            let mut buf = [0u8; 4];
-                            LittleEndian::write_u32(&mut buf, stream_definition.len() as u32);
+                            // let _ = con.write(b"STDF");
+                            let mut buf = [0u8; 8];
+                            buf[0..4].clone_from_slice("STDF".as_bytes());
+                            LittleEndian::write_u32(&mut buf[4..], stream_definition.len() as u32);
                             let _ = con.write(&buf);
+                            // println!("Sent out {:?}", buf);
                             let _ = con.write(stream_definition);
                         }
                         connections.push(connection);
