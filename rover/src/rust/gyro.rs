@@ -114,12 +114,12 @@ impl L3G4200D {
         match ALLOWED_FREQ_BANDWIDTH_COMBINATIONS.get(&freq) {
             Some(map) =>  if !map.contains_key(&bandwidth) {
                 // panic!("Bandwidth {} for frequency {} can be only one of: {}", bandwidth, freq, map);
-                panic!("Bandwidth {} for frequency {} is not valid.", bandwidth, freq);
+                panic!("L3G4200D: Bandwidth {} for frequency {} is not valid.", bandwidth, freq);
             },
-            None => panic!("Fequency can be only one of: 100, 200, 400 or 800; but got {}", freq)
+            None => panic!("L3G4200D: Fequency can be only one of: 100, 200, 400 or 800; but got {}", freq)
         }
-        let mut bus = I2c::with_bus(1).expect("Cannot initialise i2c bus 1");
-        bus.set_slave_address(address as u16).expect("Cannot set slave address.");
+        let mut bus = I2c::with_bus(1).expect("L3G4200D: Cannot initialise i2c bus 1");
+        bus.set_slave_address(address as u16).unwrap_or_else(|_| panic!("L3G4200D: Cannot set slave address {}", address));
 
 
         let result = L3G4200D {
@@ -142,14 +142,12 @@ impl L3G4200D {
         let selected_freq = ALLOWED_FREQ_BANDWIDTH_COMBINATIONS.get(&self.freq_u16).unwrap();
         let ctrl1 = 0xf + selected_freq.get("_").unwrap() + selected_freq.get(self.bandwidth).unwrap();
 
-        self.bus.smbus_write_byte(_CTRL_REG1, ctrl1).expect("Cannot set REG1 on i2c");  // Output data rate 800Hz, freq cut-off 50 (Hz?), normal mode (not power down), all axes (x, y, z) enabled
-        self.bus.smbus_write_byte(_CTRL_REG2, 0x0).expect("Cannot set REG2 on i2c");
-        self.bus.smbus_write_byte(_CTRL_REG3, 0x0).expect("Cannot set REG3 on i2c");
-        // bus.smbus_write_byte(_CTRL_REG4, 0x20);  // Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
-        // bus.smbus_write_byte(_CTRL_REG4, 0x30);  // Not block (continuous update), LSB @ lower address, FSR 2000dps, self test disabled, i2c interface
-        self.bus.smbus_write_byte(_CTRL_REG4, 0x80).expect("Cannot set REG4 on i2c");  // Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
-        self.bus.smbus_write_byte(_CTRL_REG5, 0x40).expect("Cannot set REG5 on i2c");  // FIFO enabled
-        self.bus.smbus_write_byte(_FIFO_CTRL_REG, 0x60).expect("Cannot set _FIFO_CTRL_REG on i2c");  // FIFO Stream mode
+        self.bus.smbus_write_byte(_CTRL_REG1, ctrl1).expect("L3G4200D: Cannot set REG1 on i2c");  // Output data rate 800Hz, freq cut-off 50 (Hz?), normal mode (not power down), all axes (x, y, z) enabled
+        self.bus.smbus_write_byte(_CTRL_REG2, 0x0).expect("L3G4200D: Cannot set REG2 on i2c");
+        self.bus.smbus_write_byte(_CTRL_REG3, 0x0).expect("L3G4200D: Cannot set REG3 on i2c");
+        self.bus.smbus_write_byte(_CTRL_REG4, 0x80).expect("L3G4200D: Cannot set REG4 on i2c");  // Not block (continuous update), LSB @ lower address, FSR 500dps, self test disabled, i2c interface
+        self.bus.smbus_write_byte(_CTRL_REG5, 0x40).expect("L3G4200D: Cannot set REG5 on i2c");  // FIFO enabled
+        self.bus.smbus_write_byte(_FIFO_CTRL_REG, 0x60).expect("L3G4200D: Cannot set _FIFO_CTRL_REG on i2c");  // FIFO Stream mode
 
         println!("Initialised L3G4200D i2c device.");
     }
@@ -170,25 +168,25 @@ impl L3G4200D {
         let mut result_data: Vec<DataPoint> = vec![];
 
         let mut waited_for_data = false;
-        let mut status: u16 = self.bus.smbus_read_byte(_STATUS_REG).expect("Cannot read status from i2c bus") as u16;
+        let mut status: u16 = self.bus.smbus_read_byte(_STATUS_REG).expect("L3G4200D: Cannot read status from i2c bus") as u16;
 
         while status & 0xf != 0xf {
             // TODO add check for imdefinite wait
             waited_for_data = true;
-            status = self.bus.smbus_read_byte(_STATUS_REG).expect("Cannot status byte from i2c bus") as u16;
+            status = self.bus.smbus_read_byte(_STATUS_REG).expect("L3G4200D: Cannot status byte from i2c bus") as u16;
         }
 
         if waited_for_data {
             status += 256
         }
 
-        let mut fifo_status: u8 = self.bus.smbus_read_byte(_FIFO_SRC_REG).expect("Cannot read fifo_status from i2c bus");
+        let mut fifo_status: u8 = self.bus.smbus_read_byte(_FIFO_SRC_REG).expect("L3G4200D: Cannot read fifo_status from i2c bus");
 
         while fifo_status & 0x1f != 0 {
             // TODO add check for imdefinite wait
             let data_point = self.read_data(status, fifo_status);
             result_data.push(data_point);
-            fifo_status = self.bus.smbus_read_byte(_FIFO_SRC_REG).expect("Cannot read fifo_status from i2c bus");
+            fifo_status = self.bus.smbus_read_byte(_FIFO_SRC_REG).expect("L3G4200D: Cannot read fifo_status from i2c bus");
         }
 
         for data_point in &result_data {

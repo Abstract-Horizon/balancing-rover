@@ -17,6 +17,7 @@ mod telemetry_socket_server;
 mod pid;
 mod motors;
 mod balance;
+mod as5600;
 mod gyro;
 mod accel;
 

@@ -25,6 +25,7 @@ use crate::telemetry_stream::TelemetryStreamDefinition;
 use crate::motors::Motors;
 use crate::gyro::L3G4200D;
 use crate::accel::ADXL345;
+use crate::as5600::AS5600;
 use crate::pid::{PID, SIMPLE_DIFFERENCE};
 
 
@@ -49,6 +50,8 @@ fn create_logger() -> TelemetryStreamDefinition {
             TelemetryStreamDefinition::double_field("apitch"),
             TelemetryStreamDefinition::double_field("aroll"),
             TelemetryStreamDefinition::double_field("ayaw"),
+            TelemetryStreamDefinition::double_field("lw"),
+            TelemetryStreamDefinition::double_field("rw"),
             TelemetryStreamDefinition::double_field("cx"),
             TelemetryStreamDefinition::double_field("cy"),
             TelemetryStreamDefinition::double_field("cz"),
@@ -61,7 +64,6 @@ fn create_logger() -> TelemetryStreamDefinition {
             TelemetryStreamDefinition::double_field("pi_dt"),
             TelemetryStreamDefinition::double_field("pi_o"),
             TelemetryStreamDefinition::double_field("out"),
-            TelemetryStreamDefinition::double_field("bump"),
         ]
     )
 }
@@ -97,7 +99,7 @@ impl ConfigData {
             pid_gain: 1.0,
             dead_band: 0.0001,
             i_gain_scale: 1.0,
-            d_gain_scale: 100.0,
+            d_gain_scale: 1.0,
             max_degree: 45.0,
             start_degree: 4.0,
         }
@@ -111,6 +113,8 @@ pub struct Balance {
     config_data: ConfigData,
     gyro: L3G4200D,
     accel: ADXL345,
+    as5600_left: AS5600,
+    as5600_right: AS5600,
     pid: PID,
 }
 
@@ -159,6 +163,16 @@ enum State {
     Balancing
 }
 
+fn angular_distance(a: f64, b: f64) -> f64 {
+    let r = a - b;
+    if r < 0.0 {
+        return r + 360.0;
+    } else if r >= 360.0 {
+        return r - 360.0;
+    }
+    r
+}
+
 impl Balance {
     pub fn new() -> Balance {
         let mut socket_server_builder = SocketTelemetryServerBuilder::new();
@@ -173,6 +187,8 @@ impl Balance {
             logger,
             gyro: L3G4200D::new(0x69, config_data.freq, "50", config_data.combine_gyro_factor),
             accel: ADXL345::new(0x53, config_data.freq, config_data.combine_accel_factor),
+            as5600_left: AS5600::new(0x0, 1),
+            as5600_right: AS5600::new(0x1, -1),
             pid: PID::new(
                 config_data.pid_kp, config_data.pid_ki, config_data.pid_kd,
                 config_data.pid_gain, config_data.dead_band,
@@ -238,14 +254,15 @@ impl Balance {
         let mut cx: f64 = 0.0;
         let mut cy: f64 = 0.0;
         let mut cz: f64 = 0.0;
-        let mut pid_time: f64 = 0.0;
-        let bump: f64 = 0.0;
 
-        let freq_f64 = config_data.freq as f64;
+        let mut last_cy: f64 = 0.0;
+        let mut last_left_wheel_position: f64 = 0.0;
+        let mut last_right_wheel_position: f64 = 0.0;
 
-        let start = SystemTime::now();
-        let since_the_epoch = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
-        let mut last_time = since_the_epoch.as_secs_f64();
+        // let mut pid_time: f64 = 0.0;
+        // let freq_f64 = config_data.freq as f64;
+
+        let mut last_time = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs_f64();
 
         let mut state = State::WaitingForReady;
 
@@ -263,67 +280,76 @@ impl Balance {
 
             let gyro_data_points = self.gyro.read_deltas();
             let gyro_data_point_len = gyro_data_points.len();
+            let gyro_data_point = gyro_data_points.last().unwrap();
 
             let accel_data_point = self.accel.read();
+
+            let left_wheel_position = self.as5600_left.read();
+            let right_wheel_position = self.as5600_right.read();
 
             let accel_pitch = (accel_data_point.z.atan2((accel_data_point.x * accel_data_point.x + accel_data_point.y * accel_data_point.y).sqrt()) * 180.0) / PI;
             let accel_roll = (accel_data_point.x.atan2((accel_data_point.z * accel_data_point.z + accel_data_point.y * accel_data_point.y).sqrt()) * 180.0) / PI;
             let accel_yav = (accel_data_point.y.atan2((accel_data_point.z * accel_data_point.z + accel_data_point.x * accel_data_point.x).sqrt()) * 180.0) / PI;
 
-            for gyro_data_point in gyro_data_points {
 
-                let combine_gyro_accel_factor = config_data.combine_gyro_accel_factor;
-                let invert_combine_gyro_accel_factor = 1.0 - combine_gyro_accel_factor;
-                cx = (cx + self.gyro.px / self.gyro.freq) * combine_gyro_accel_factor + accel_yav * invert_combine_gyro_accel_factor;
-                cy = (cy + self.gyro.py / self.gyro.freq) * combine_gyro_accel_factor + accel_pitch * invert_combine_gyro_accel_factor;
-                cz = (cz + self.gyro.pz / self.gyro.freq) * combine_gyro_accel_factor + accel_roll * invert_combine_gyro_accel_factor;
+            let combine_gyro_accel_factor = config_data.combine_gyro_accel_factor;
+            let invert_combine_gyro_accel_factor = 1.0 - combine_gyro_accel_factor;
 
-                let start = SystemTime::now();
-                let since_the_epoch = start.duration_since(UNIX_EPOCH).expect("Time went backwards");
-                let now = since_the_epoch.as_secs_f64();
+            last_cy = cy;
 
-                let delta_time = now - last_time;
-                last_time = now;
+            cx = (cx + self.gyro.px / self.gyro.freq) * combine_gyro_accel_factor + accel_yav * invert_combine_gyro_accel_factor;
+            cy = (cy + self.gyro.py / self.gyro.freq) * combine_gyro_accel_factor + accel_pitch * invert_combine_gyro_accel_factor;
+            cz = (cz + self.gyro.pz / self.gyro.freq) * combine_gyro_accel_factor + accel_roll * invert_combine_gyro_accel_factor;
 
-                let output = self.pid.process(pid_time, 0.0, (cy * PI / 90.0).sin() * 2.0);
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs_f64();
 
-                let control = output;
+            let delta_time = now - last_time;
+            last_time = now;
 
-                pid_time += 1.0 / freq_f64;
+            let angular_velocity: f64 = (cy - last_cy) / delta_time;  // dec/s
+            let left_wheel_speed: f64 = angular_distance(left_wheel_position, last_left_wheel_position) / delta_time;
+            let right_wheel_speed: f64 = angular_distance(right_wheel_position, last_right_wheel_position) / delta_time;
 
-                match state {
-                    State::Stopped => {
-                    },
-                    State::WaitingForReady => {
-                        if -config_data.start_degree < cy && cy < config_data.start_degree {
-                            state = State::Balancing;
-                        }
-                    },
-                    State::Balancing => {
-                        if cy < -config_data.max_degree || cy > config_data.max_degree {
-                            state = State::WaitingForReady;
-                            motors.stop_all();
-                            println!("*** Got over {} def stopping!", config_data.max_degree);
-                        } else {
-                            motors.left_speed(control as f32);
-                            motors.right_speed(control as f32);
-                        }
+            // let output = self.pid.process(now, 0.0, (cy * PI / 90.0).sin() * 2.0);
+            let pid_output = self.pid.process(now, 0.0, cy);
+
+            let mut control = pid_output;
+
+            // pid_time += 1.0 / freq_f64;
+
+            match state {
+                State::Stopped => {
+                },
+                State::WaitingForReady => {
+                    if -config_data.start_degree < cy && cy < config_data.start_degree {
+                        state = State::Balancing;
+                    }
+                },
+                State::Balancing => {
+                    if cy < -config_data.max_degree || cy > config_data.max_degree {
+                        state = State::WaitingForReady;
+                        motors.stop_all();
+                        println!("*** Got over {} def stopping!", config_data.max_degree);
+                    } else {
+                        motors.left_speed(control as f32);
+                        motors.right_speed(control as f32);
                     }
                 }
-
-                log_with_time!(
-                    self.telemetry_server, self.logger,
-                    gyro_data_point.dx, gyro_data_point.dy, gyro_data_point.dz,
-                    self.gyro.px, self.gyro.py, self.gyro.pz,
-                    gyro_data_point.status, gyro_data_point.fifo_status, gyro_data_point_len as u8,
-                    accel_data_point.raw_x, accel_data_point.raw_y, accel_data_point.raw_z,
-                    accel_data_point.x, accel_data_point.y, accel_data_point.z,
-                    accel_pitch, accel_roll, accel_yav,
-                    cx, cy, cz,
-                    self.pid.p, self.pid.i, self.pid.d,
-                    self.pid.p * self.pid.kp, self.pid.i * self.pid.ki, self.pid.d * self.pid.kd,
-                    delta_time, output, control, bump);
             }
+
+            log_with_time!(
+                self.telemetry_server, self.logger,
+                gyro_data_point.dx, gyro_data_point.dy, gyro_data_point.dz,
+                self.gyro.px, self.gyro.py, self.gyro.pz,
+                gyro_data_point.status, gyro_data_point.fifo_status, gyro_data_point_len as u8,
+                accel_data_point.raw_x, accel_data_point.raw_y, accel_data_point.raw_z,
+                accel_data_point.x, accel_data_point.y, accel_data_point.z,
+                accel_pitch, accel_roll, accel_yav,
+                left_wheel_position, right_wheel_position,
+                cx, cy, cz,
+                self.pid.p, self.pid.i, self.pid.d,
+                self.pid.p * self.pid.kp, self.pid.i * self.pid.ki, self.pid.d * self.pid.kd,
+                delta_time, pid_output, control);
         }
 
         println!("Trying to kill threads...");

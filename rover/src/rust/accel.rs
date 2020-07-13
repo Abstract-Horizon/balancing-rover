@@ -85,8 +85,8 @@ pub struct ADXL345 {
 impl ADXL345 {
     pub fn new(address: u8, freq: u16, combine_filter: f64) -> ADXL345 {
 
-        let mut bus = I2c::with_bus(1).expect("Cannot initialise i2c bus 1");
-        bus.set_slave_address(address as u16).expect("Cannot set slave address.");
+        let mut bus = I2c::with_bus(1).expect("ADXL345: Cannot initialise i2c bus 1");
+        bus.set_slave_address(address as u16).unwrap_or_else(|_| panic!("ADXL345: Cannot set slave address {}", address));
 
         let adxl345 = ADXL345 {
             bus,
@@ -96,7 +96,7 @@ impl ADXL345 {
 
         match ALLOWED_FREQUENCIES.get(&freq) {
             Some(rate) => adxl345.set_bandwidth_rate(*rate),
-            None => panic!("Unexpected freqency {}", freq)
+            None => panic!("ADXL345: Unexpected freqency {}", freq)
         }
 
         adxl345.set_range(RANGE_16G);
@@ -107,28 +107,28 @@ impl ADXL345 {
     }
 
     pub fn set_bandwidth_rate(&self, rate_flag: u8) {
-        self.bus.smbus_write_byte(BW_RATE, rate_flag).expect("Cannot set BW_RATE on i2c");
+        self.bus.smbus_write_byte(BW_RATE, rate_flag).expect("ADXL345: Cannot set BW_RATE on i2c");
     }
 
     pub fn set_range(&self, range_flag: u8) {
-        let mut value = self.bus.smbus_read_byte(DATA_FORMAT).expect("Cannot read DATA_FORMAT byte from i2c");
+        let mut value = self.bus.smbus_read_byte(DATA_FORMAT).expect("ADXL345: Cannot read DATA_FORMAT byte from i2c");
 
         value &= !0x0F;
         value |= range_flag;
         value |= 0x08; // FULL RES
 
-        self.bus.smbus_write_byte(DATA_FORMAT, value).expect("Cannot set BW_RATE on i2c");
+        self.bus.smbus_write_byte(DATA_FORMAT, value).expect("ADXL345: Cannot set DATA_FORMAT on i2c");
     }
 
     pub fn enable_measurement(&self) {
-        self.bus.smbus_write_byte(POWER_CTL, MEASURE).expect("Cannot set BW_RATE on i2c");
+        self.bus.smbus_write_byte(POWER_CTL, MEASURE).expect("ADXL345: Cannot set POWER_CTL on i2c");
     }
 
     pub fn read(&mut self) -> DataPoint {
 
         let command: [u8; 1] = [AXES_DATA];
         let mut buf = [0u8; 6];
-        let _ = self.bus.write_read(&command, &mut buf).expect("Cannot read 6 bytes from i2c");
+        let _ = self.bus.write_read(&command, &mut buf).expect("ADXL345: Cannot read 6 bytes from i2c");
 
         let raw_x = LittleEndian::read_i16(&buf[0..2]);
         let raw_y = LittleEndian::read_i16(&buf[2..4]);
