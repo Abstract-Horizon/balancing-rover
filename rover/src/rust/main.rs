@@ -84,7 +84,7 @@ impl MQTTClient {
     }
 }
 
-fn float_payload(msg: mqtt311::Publish, mqtt_client: &mut MQTTClient, update: fn(&mut ConfigData, f: f64) -> ()) {
+fn config_float_payload(msg: mqtt311::Publish, mqtt_client: &mut MQTTClient, update: fn(&mut ConfigData, f: f64) -> ()) {
     match String::from_utf8(msg.payload.to_vec()) {
         Ok(s) => match s.parse() {
             Ok(f) => {
@@ -98,6 +98,18 @@ fn float_payload(msg: mqtt311::Publish, mqtt_client: &mut MQTTClient, update: fn
     }
 }
 
+fn float_payload(msg: mqtt311::Publish, mut mqtt_client: &mut MQTTClient, process: fn(&mut MQTTClient, f: f64) -> ()) {
+    match String::from_utf8(msg.payload.to_vec()) {
+        Ok(s) => match s.parse() {
+            Ok(f) => {
+                // println!("Got combine_gyro_factor {}", f);
+                process(&mut mqtt_client, f);
+            },
+            _ => println!("Failed to parse {} for  {}", s, msg.topic_name)
+        },
+        _ => println!("Failed to convert to utf8 {:?} for  {}", msg.payload, msg.topic_name)
+    }
+}
 
 fn main() {
     match MqttClient::start(MqttOptions::new("balance-r", "172.24.1.174", 1883).set_keep_alive(10)) {
@@ -110,25 +122,25 @@ fn main() {
             let mut mqtt_client = MQTTClient::new(mqtt_client, balance_control);
 
             mqtt_client.subscribe_storage("balance/gyro/filter", |msg, mqtt_client| 
-                float_payload(msg, mqtt_client, |config_data, f| config_data.combine_gyro_factor = f)
+                config_float_payload(msg, mqtt_client, |config_data, f| config_data.combine_gyro_factor = f)
             );
             mqtt_client.subscribe_storage("balance/accel/filter", |msg, mqtt_client|
-                float_payload(msg, mqtt_client, |config_data, f| config_data.combine_accel_factor = f)
+                config_float_payload(msg, mqtt_client, |config_data, f| config_data.combine_accel_factor = f)
             );
             mqtt_client.subscribe_storage("balance/combine_factor_gyro", |msg, mqtt_client|
-                float_payload(msg, mqtt_client, |config_data, f| config_data.combine_gyro_accel_factor = f)
+                config_float_payload(msg, mqtt_client, |config_data, f| config_data.combine_gyro_accel_factor = f)
             );
             mqtt_client.subscribe_storage("balance/pid_inner/p", |msg, mqtt_client|
-                float_payload(msg, mqtt_client, |config_data, f| config_data.pid_kp = f)
+                config_float_payload(msg, mqtt_client, |config_data, f| config_data.pid_kp = f)
             );
             mqtt_client.subscribe_storage("balance/pid_inner/i", |msg, mqtt_client|
-                float_payload(msg, mqtt_client, |config_data, f| config_data.pid_ki = f)
+                config_float_payload(msg, mqtt_client, |config_data, f| config_data.pid_ki = f)
             );
             mqtt_client.subscribe_storage("balance/pid_inner/d", |msg, mqtt_client|
-                float_payload(msg, mqtt_client, |config_data, f| config_data.pid_kd = f)
+                config_float_payload(msg, mqtt_client, |config_data, f| config_data.pid_kd = f)
             );
             mqtt_client.subscribe_storage("balance/pid_inner/g", |msg, mqtt_client|
-                float_payload(msg, mqtt_client, |config_data, f| config_data.pid_gain = f)
+                config_float_payload(msg, mqtt_client, |config_data, f| config_data.pid_gain = f)
             );
             mqtt_client.subscribe("storage/write/balance/pid_outer/p", |_msg, _mqtt_client| {});
             mqtt_client.subscribe("storage/write/balance/pid_outer/i", |_msg, _mqtt_client| {});
@@ -141,6 +153,9 @@ fn main() {
             mqtt_client.subscribe("balancing/start", |_, mqtt_client| {
                 mqtt_client.balance_control.start_balancing();
             });
+            mqtt_client.subscribe("manual", |msg, mqtt_client|
+                float_payload(msg, mqtt_client, |mqtt_client, f| mqtt_client.balance_control.manual(f))
+            );
             mqtt_client.subscribe("balancing/stop", |_, mqtt_client| {
                 mqtt_client.balance_control.stop_balancing();
             });

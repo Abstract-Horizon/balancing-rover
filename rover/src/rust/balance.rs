@@ -123,7 +123,8 @@ enum Command {
     StartBalancing,
     StopBalancing,
     Leave,
-    NewConfig(ConfigData)
+    NewConfig(ConfigData),
+    Manual(f64)
 }
 
 
@@ -150,17 +151,22 @@ impl BalanceControl {
         let _ = self.balance_command_sender.send(Command::StopBalancing);
     }
 
+    pub fn manual(&self, speed: f64) {
+        let _ = self.balance_command_sender.send(Command::Manual(speed));
+    }
+
     pub fn stop(self) {
         let _ = self.balance_command_sender.send(Command::Leave);
         let _ = self.balance_thread.join();
     }
 }
 
-
+#[derive(PartialEq, Clone)]
 enum State {
     Stopped,
     WaitingForReady,
-    Balancing
+    Balancing,
+    Manual,
 }
 
 fn angular_distance(a: f64, b: f64) -> f64 {
@@ -259,12 +265,12 @@ impl Balance {
         let mut last_left_wheel_position: f64 = 0.0;
         let mut last_right_wheel_position: f64 = 0.0;
 
-        // let mut pid_time: f64 = 0.0;
-        // let freq_f64 = config_data.freq as f64;
-
         let mut last_time = SystemTime::now().duration_since(UNIX_EPOCH).expect("Time went backwards").as_secs_f64();
 
         let mut state = State::WaitingForReady;
+        let mut last_state = State::Stopped;
+
+        let mut manual_speed: f64 = 0.0;
 
         loop {
             match command_receiver.try_recv() {
@@ -273,7 +279,11 @@ impl Balance {
                     Command::StopBalancing => state = State::Stopped,
                     Command::Leave => break,
                     Command::NewConfig(new_config) => self.process_config(new_config),
-                    Command::Calibrate => {}
+                    Command::Calibrate => {},
+                    Command::Manual(speed) => {
+                            manual_speed = speed;
+                            state = State::Manual
+                        }
                 },
                 _ => {}
             };
@@ -311,14 +321,15 @@ impl Balance {
             let right_wheel_speed: f64 = angular_distance(right_wheel_position, last_right_wheel_position) / delta_time;
 
             // let output = self.pid.process(now, 0.0, (cy * PI / 90.0).sin() * 2.0);
-            let pid_output = self.pid.process(now, 0.0, cy);
 
-            let mut control = pid_output;
-
-            // pid_time += 1.0 / freq_f64;
+            let mut control: f64 = 0.0;
+            let pid_output = self.pid.process(now, -2.6, cy);
 
             match state {
                 State::Stopped => {
+                    if last_state != State::Stopped {
+                        motors.stop_all();
+                    }
                 },
                 State::WaitingForReady => {
                     if -config_data.start_degree < cy && cy < config_data.start_degree {
@@ -326,6 +337,7 @@ impl Balance {
                     }
                 },
                 State::Balancing => {
+                    control = pid_output;
                     if cy < -config_data.max_degree || cy > config_data.max_degree {
                         state = State::WaitingForReady;
                         motors.stop_all();
@@ -334,8 +346,15 @@ impl Balance {
                         motors.left_speed(control as f32);
                         motors.right_speed(control as f32);
                     }
+                },
+                State::Manual => {
+                    control = manual_speed;
+                    motors.left_speed(manual_speed as f32);
+                    motors.right_speed(manual_speed as f32);
                 }
             }
+            
+            last_state = state.clone();
 
             log_with_time!(
                 self.telemetry_server, self.logger,

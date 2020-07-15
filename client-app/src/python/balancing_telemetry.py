@@ -99,6 +99,7 @@ class ValuesPanel(Collection):
             'combine_factor_gyro': 0.95,
             'expo': 0.2
         }
+        self.manual = 0.01
 
         pyros.subscribe("storage/write/balance/gyro/filter", self.gyro_filter_changed)
         pyros.subscribe("storage/write/balance/accel/filter", self.accel_filter_changed)
@@ -119,6 +120,7 @@ class ValuesPanel(Collection):
         self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("pid_inner/d"), 'pi-d', button_font=_ui_factory.get_small_font()))
         self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("pid_inner/g"), 'pi-g', button_font=_ui_factory.get_small_font()))
         self.add_component(Component(Rect(0, 0, 300, 10)))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, (self.get_manual, self.set_manual), 'manual', button_font=_ui_factory.get_small_font()))
 
         pyros_client_app.add_on_connected_subscriber(self.read_values)
 
@@ -211,6 +213,12 @@ class ValuesPanel(Collection):
             m = m[p]
         return partial(read_value, m, splt[-1]), partial(write_value, m, splt[-1], path)
 
+    def set_manual(self, manual):
+        self.manual = manual
+
+    def get_manual(self):
+        return self.manual
+
 
 class BalancingRoverTelemetry(Collection):
     def __init__(self, _ui_factory, _pyros_client_app):
@@ -239,6 +247,7 @@ class BalancingRoverTelemetry(Collection):
         self.start_stop_balancing_panel.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Start", on_click=self.start_balancing))
         self.start_stop_balancing_panel.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Stop", on_click=self.stop_balancing, hint=UiHint.WARNING))
         self.start_stop_balancing_panel.components[0].set_visible(False)
+        self.commands.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Manual", on_click=self.manual))
 
         self.commands.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Calibrate", on_click=self.calibrate))
 
@@ -261,7 +270,8 @@ class BalancingRoverTelemetry(Collection):
         self.pause_graph_panel.components[0].set_visible(False)
 
         self.commands.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Clear", on_click=self.clear_graph))
-        self.commands.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Save", on_click=self.save_graph))
+        self.commands.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Save All", on_click=self.save_graph_all))
+        self.commands.add_component(_ui_factory.text_button(Rect(0, 0, 100, 0), "Save ", on_click=self.save_graph))
 
         self.telemetry_client = None
         self._collect_data = False
@@ -379,6 +389,12 @@ class BalancingRoverTelemetry(Collection):
             self.start_stop_balancing_panel.components[0].set_visible(True)
             self.start_stop_balancing_panel.components[1].set_visible(False)
 
+    def manual(self, *_args):
+        pyros.publish("manual", "{0:.2f}".format(self.values_panel.manual))
+        if pyros.is_connected():
+            self.start_stop_balancing_panel.components[0].set_visible(False)
+            self.start_stop_balancing_panel.components[1].set_visible(True)
+
     @staticmethod
     def calibrate(*_args):
         pyros.publish("balancing/calibrate", "all")
@@ -426,7 +442,7 @@ class BalancingRoverTelemetry(Collection):
 
         self.telemetry_client.get_stream_definition("balance-data", clear_data)
 
-    def save_graph(self, *_args):
+    def save_graph_all(self, *_args):
 
         with open("logs.csv", "wt") as file:
             def write_data(records):
@@ -435,6 +451,25 @@ class BalancingRoverTelemetry(Collection):
 
             def write_header(stream):
                 file.write("timestamp," + ",".join(f.name for f in stream.fields) + "\n")
+                self.telemetry_client.retrieve(stream, 0, time.time(), write_data)
+
+            self.telemetry_client.get_stream_definition("balance-data", write_header)
+
+    def save_graph(self, *_args):
+
+        fields_to_save = ["lw", "rw", "cy", "pi_p", "pi_i", "pi_d", "pi_pg", "pi_ig", "pi_dg", "pi_dt", "pi_o", "out"]
+        field_indexes = [0]
+
+        with open("logs.csv", "wt") as file:
+            def write_data(records):
+                for record in records:
+                    file.write(",".join(str(record[i]) for i in field_indexes) + "\n")
+
+            def write_header(stream):
+                filtered_fields = [f.name for f in stream.fields if f.name in fields_to_save]
+                field_indexes.extend(i + 1 for i in range(len(stream.fields)) if stream.fields[i].name in filtered_fields)
+                print(f" fields {filtered_fields} and indexes {field_indexes}")
+                file.write("timestamp," + ",".join(f for f in filtered_fields) + "\n")
                 self.telemetry_client.retrieve(stream, 0, time.time(), write_data)
 
             self.telemetry_client.get_stream_definition("balance-data", write_header)
