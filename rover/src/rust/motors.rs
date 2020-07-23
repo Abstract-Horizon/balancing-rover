@@ -17,8 +17,8 @@ const LEFT_PWM_PIN_NO: u8 = 20;
 const LEFT_IN1_PIN_NO: u8 = 6;
 const LEFT_IN2_PIN_NO: u8 = 5;
 const RIGHT_PWM_PIN_NO: u8 = 26;
-const RIGHT_IN1_PIN_NO: u8 = 19;
-const RIGHT_IN2_PIN_NO: u8 = 13;
+const RIGHT_IN1_PIN_NO: u8 = 13;
+const RIGHT_IN2_PIN_NO: u8 = 19;
 
 
 
