@@ -10,8 +10,6 @@
 #
 #################################################################################
 
-import pygame
-import time
 
 from pygame import Rect
 
@@ -21,9 +19,8 @@ from pyros_support_ui.components import Component, Collection, ALIGNMENT, UiHint
 
 
 class NumberInputComponent(Collection):
-    _SCALES = [0.0001, 0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000, 1000000]
 
-    def __init__(self, rect, ui_factory, getter_setter_pair, name, button_font=None, value_font=None):
+    def __init__(self, rect, ui_factory, getter_setter_pair, name, button_font=None, value_font=None, top_scale=7, bottom_scale=4):
         super(NumberInputComponent, self).__init__(rect, layout=LeftRightLayout(margin=5))
         self.getter = getter_setter_pair[0]
         self.setter = getter_setter_pair[1]
@@ -34,6 +31,19 @@ class NumberInputComponent(Collection):
 
         self.widths = [self.button_font.size(w)[0] for w in ["<", "<<", ">>", ">"]]
         self.margin = 3
+
+        self.top_scale = top_scale
+        self.bottom_scale = bottom_scale
+        self.scale = [1]
+        p = 0.1
+        for _ in range(1, bottom_scale):
+            self.scale.insert(0, p)
+            p /= 10.0
+
+        p = 10.0
+        for _ in range(1, top_scale):
+            self.scale.append(p)
+            p *= 10.0
 
         self.add_component(ui_factory.text_button(Rect(rect.x, rect.y, self.widths[0], self.height), "<", self.on_click_minus1, font=self.button_font, hint=UiHint.NO_DECORATION))
         self.add_component(ui_factory.text_button(Rect(rect.x + 34, rect.y, self.widths[1], self.height), "<<", self.on_click_minus01, font=self.button_font, hint=UiHint.NO_DECORATION))
@@ -76,7 +86,7 @@ class NumberInputComponent(Collection):
             self.right.set_text(right)
             self.left.h_alignment = ALIGNMENT.RIGHT
         else:
-            self.left.set_text("   {0:.5f}".format(value))
+            self.left.set_text(("   {0:." + str(self.bottom_scale) + "f}").format(value))
             self.right.set_text("")
             self.left.h_alignment = ALIGNMENT.LEFT
 
@@ -84,40 +94,42 @@ class NumberInputComponent(Collection):
 
     def on_click_plus1(self, button, pos):
         value = self.getter()
-        for i in range(1, len(NumberInputComponent._SCALES)):
-            if abs(value) < NumberInputComponent._SCALES[i]:
-                value += NumberInputComponent._SCALES[i - 1]
+        for i in range(1, len(self.scale)):
+            if abs(value) < self.scale[i]:
+                value += self.scale[i - 1]
                 self.setter(value)
                 return
 
-        value += NumberInputComponent._SCALES[-1]
+        value += self.scale[-1]
         self.setter(value)
 
     def on_click_minus1(self, button, pos):
         value = self.getter()
-        for i in range(1, len(NumberInputComponent._SCALES)):
-            if abs(value) < NumberInputComponent._SCALES[i]:
-                value -= NumberInputComponent._SCALES[i - 1]
+        for i in range(1, len(self.scale)):
+            if abs(value) < self.scale[i]:
+                value -= self.scale[i - 1]
                 self.setter(value)
                 return
 
-        value -= NumberInputComponent._SCALES[-1]
+        value -= self.scale[-1]
         self.setter(value)
 
     def on_click_plus01(self, button, pos):
         value = self.getter()
-        for i in range(2, len(NumberInputComponent._SCALES)):
-            if abs(value) < NumberInputComponent._SCALES[i]:
-                value += NumberInputComponent._SCALES[i - 2]
+        for i in range(2, len(self.scale)):
+            if abs(value) < self.scale[i]:
+                value += self.scale[i - 2]
                 self.setter(value)
                 return
-        value += NumberInputComponent._SCALES[-2]
+        value += self.scale[-2]
+        self.setter(value)
 
     def on_click_minus01(self, button, pos):
         value = self.getter()
-        for i in range(2, len(NumberInputComponent._SCALES)):
-            if abs(value) < NumberInputComponent._SCALES[i]:
-                value -= NumberInputComponent._SCALES[i - 2]
+        for i in range(2, len(self.scale)):
+            if abs(value) < self.scale[i]:
+                value -= self.scale[i - 2]
                 self.setter(value)
                 return
-        value -= NumberInputComponent._SCALES[-2]
+        value -= self.scale[-2]
+        self.setter(value)

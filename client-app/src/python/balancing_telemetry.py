@@ -62,7 +62,7 @@ class GraphsPanel(Collection):
         self.graphs = []
         for i in range(rows):
             self.graphs.append([])
-            for c in range(columns):
+            for _ in range(columns):
                 graph = Graph(None, ui_factory, controller=graph_controller)
                 self.graphs[i].append(graph)
                 self.add_component(graph)
@@ -120,7 +120,7 @@ class ValuesPanel(Collection):
         self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("pid_inner/d"), 'pi-d', button_font=_ui_factory.get_small_font()))
         self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, self.create_getter_and_setter("pid_inner/g"), 'pi-g', button_font=_ui_factory.get_small_font()))
         self.add_component(Component(Rect(0, 0, 300, 10)))
-        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, (self.get_manual, self.set_manual), 'manual', button_font=_ui_factory.get_small_font()))
+        self.add_component(NumberInputComponent(Rect(0, 0, 300, button_height), _ui_factory, (self.get_manual, self.set_manual), 'man', button_font=_ui_factory.get_small_font(), top_scale=2, bottom_scale = 0))
 
         pyros_client_app.add_on_connected_subscriber(self.read_values)
 
@@ -358,6 +358,15 @@ class BalancingRoverTelemetry(Collection):
         self.pid_graphs_panel.graphs[1][0].set_graph_data(self._graph_data['pi_dt'])
         self.pid_graphs_panel.graphs[1][1].set_graph_data(self._graph_data['pi_dt'])
         self.pid_graphs_panel.graphs[1][2].set_graph_data(self._graph_data['pi_slo'])
+
+        self.sensors_graphs_panel.add_value_overlay(0, 3, "{0.1f}")
+        self.sensors_graphs_panel.add_value_overlay(1, 3, "{0.1f}")
+        self.sensors_graphs_panel.add_value_overlay(2, 0, "{0.1f}")
+        self.sensors_graphs_panel.add_value_overlay(2, 1, "{0.1f}")
+        self.sensors_graphs_panel.add_value_overlay(2, 3, "{0.1f}")
+        self.sensors_graphs_panel.add_value_overlay(2, 3, "{0.1f}")
+
+
 
     def key_down(self, key):
         if self.pyros_client_app.key_down(key):
